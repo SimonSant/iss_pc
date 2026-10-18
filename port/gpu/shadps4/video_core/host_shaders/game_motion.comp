@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// iss: the game's own motion vectors (inFAMOUS Second Son: an RG16F target in UV units,
+// current minus previous, camera from depth plus moving objects) converted to the upscaler's
+// convention: pixels, previous minus current.
+#version 450
+#extension GL_EXT_samplerless_texture_functions : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0) uniform texture2D game_tex;
+layout(binding = 1, rg16f) uniform writeonly image2D motion_img;
+layout(binding = 2) uniform texture2D unused_tex;
+
+layout(push_constant) uniform Constants {
+    vec4 reproject[3];
+    vec4 proj;
+    vec4 prev_proj;
+    vec2 size;           // pixels
+    vec2 jitter;
+    vec2 previous_jitter;
+    uint mode;
+};
+
+void main() {
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(size.x) || pixel.y >= int(size.y)) {
+        return;
+    }
+    const ivec2 game_size = textureSize(game_tex, 0);
+    const ivec2 source = min(pixel * game_size / ivec2(size), game_size - 1);
+    const vec2 game = texelFetch(game_tex, source, 0).rg;
+    imageStore(motion_img, pixel, vec4(-game * size, 0.0, 0.0));
+}

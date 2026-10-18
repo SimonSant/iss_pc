@@ -64,6 +64,10 @@ public:
     /// Before a compute dispatch: the post-processing combine shader triggers the upscale.
     void OnDispatch(u64 cs_hash);
 
+    /// iss: before a draw: the first post-processing pass after the game's motion vectors
+    /// (TLG_UPSCALE_BEFORE_PS, a comma separated list of pixel shader hashes) triggers it.
+    void OnPixelShader(u64 ps_hash);
+
     /// Start of a frame in the command stream (display pass).
     bool OnFrameStart();
     bool RasterScaling() const;
@@ -195,6 +199,7 @@ private:
     bool enabled = false;
     bool failed = false;
     u64 trigger_hash = 0x9a9cf8a9;
+    std::vector<u64> trigger_ps;
     VideoCore::ImageId scene_color{};
     bool done_this_frame = false;
     u32 preset_file_frames = 0; ///< TLG_PRESET_FILE polling

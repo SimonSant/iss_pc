@@ -1089,6 +1089,15 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         scene_debug_frame = scene_debug && std::remove(scene_debug) == 0;
         scene_targets->debug = scene_debug_frame;
     }
+    // iss: the game's own motion vector target, and the post pass the upscale goes before.
+    if (upscaler->Enabled()) {
+        if (const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)]) {
+            if (cb_descs[0].first && camera_motion->IsGameMotionShader(ps->pgm_hash)) {
+                camera_motion->OnGameMotion(cb_descs[0].first);
+            }
+            upscaler->OnPixelShader(ps->pgm_hash);
+        }
+    }
     bind_prepared = used_prepared;
     motion_draw = pipeline->GetGraphicsKey().motion_vectors;
     motion_geometry = 0;

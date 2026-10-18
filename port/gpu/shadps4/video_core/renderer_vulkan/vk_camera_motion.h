@@ -46,9 +46,23 @@ public:
         return debug_overlay || for_upscaler;
     }
 
-    /// Both cameras and the scene depth of the current frame are known.
+    /// Both cameras and the scene depth of the current frame are known (with the game's own
+    /// motion vectors: the scene depth and those vectors).
     [[nodiscard]] bool Ready() const noexcept {
+        if (game_motion_mode) {
+            return depth_id && game_motion_id;
+        }
         return current.valid && previous.valid && depth_id;
+    }
+
+    /// iss: the game draws its own motion vectors (TLG_GAME_MOTION_PS, pixel shader hashes
+    /// whose color target holds them): they replace the reconstruction from the camera.
+    [[nodiscard]] bool GameMotionMode() const noexcept {
+        return game_motion_mode;
+    }
+    [[nodiscard]] bool IsGameMotionShader(u64 ps_hash) const noexcept;
+    void OnGameMotion(VideoCore::ImageId target) noexcept {
+        game_motion_id = target;
     }
     [[nodiscard]] VideoCore::ImageId Depth() const noexcept {
         return depth_id;
@@ -105,6 +119,14 @@ private:
     std::array<float, 2> jitter{}, previous_jitter{};
     std::array<u32, 2> render_size{};
     VideoCore::ImageId depth_id{};
+    bool game_motion_mode = false;
+    std::vector<u64> game_motion_ps;
+    VideoCore::ImageId game_motion_id{};
+    float game_near = 0.1f, game_far = 10000.0f, game_fov = 1.0f;
+    vk::UniquePipeline game_motion_pipeline;
+    vk::Image game_view_image{};
+    u64 game_view_uid = 0;
+    vk::ImageView game_view{};
 
     vk::UniqueDescriptorSetLayout desc_layout;
     vk::UniquePipelineLayout pipeline_layout;

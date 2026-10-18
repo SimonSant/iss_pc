@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -9,6 +10,7 @@
 #include "tlg_toggles.h"
 
 #include "video_core/host_shaders/camera_motion_comp.h"
+#include "video_core/host_shaders/game_motion_comp.h"
 #include "video_core/host_shaders/camera_motion_debug_comp.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_object_motion.h"
@@ -96,6 +98,32 @@ CameraMotion::CameraMotion(const Instance& instance_, Scheduler& scheduler_,
                     .layout = *motion_pipeline_layout,
                 }));
         device.destroyShaderModule(motion_module);
+        if (const char* list = std::getenv("TLG_GAME_MOTION_PS"); list && list[0]) {
+            for (const char* p = list; *p;) {
+                char* end = nullptr;
+                const u64 hash = std::strtoull(p, &end, 16);
+                if (end == p) break;
+                game_motion_ps.push_back(hash);
+                p = *end == ',' ? end + 1 : end;
+            }
+            game_motion_mode = !game_motion_ps.empty();
+        }
+        if (const char* v = std::getenv("TLG_CAMERA_NEAR")) game_near = std::strtof(v, nullptr);
+        if (const char* v = std::getenv("TLG_CAMERA_FAR")) game_far = std::strtof(v, nullptr);
+        if (const char* v = std::getenv("TLG_CAMERA_FOV")) game_fov = std::strtof(v, nullptr);
+        if (game_motion_mode) {
+            const auto game_module = CompileSPV(GAME_MOTION_COMP, device);
+            game_motion_pipeline = Check(device.createComputePipelineUnique(
+                {}, vk::ComputePipelineCreateInfo{
+                        .stage = {.stage = vk::ShaderStageFlagBits::eCompute,
+                                  .module = game_module,
+                                  .pName = "main"},
+                        .layout = *motion_pipeline_layout,
+                    }));
+            device.destroyShaderModule(game_module);
+            std::printf("Camera motion: the game's own motion vectors (%zu shaders)\n",
+                        game_motion_ps.size());
+        }
     }
     if (!debug_overlay) {
         return;
@@ -153,12 +181,19 @@ CameraMotion::CameraMotion(const Instance& instance_, Scheduler& scheduler_,
 CameraMotion::~CameraMotion() = default;
 
 float CameraMotion::VerticalFov() const noexcept {
+    if (game_motion_mode) return game_fov;
     return 2.0f * std::atan(1.0f / current.proj[1]);
 }
 
 float CameraMotion::Near() const noexcept {
+    if (game_motion_mode) return game_near;
     // depth = zs + zo / z is 0 at the near plane.
     return -current.proj[3] / current.proj[2];
+}
+
+bool CameraMotion::IsGameMotionShader(u64 ps_hash) const noexcept {
+    return game_motion_mode &&
+           std::find(game_motion_ps.begin(), game_motion_ps.end(), ps_hash) != game_motion_ps.end();
 }
 
 std::array<std::array<float, 4>, 3> CameraMotion::TaaDepthParameters() const noexcept {
@@ -178,6 +213,55 @@ vk::Image CameraMotion::ObjectMotionImage(u32 width, u32 height) const noexcept 
 
 void CameraMotion::RecordMotion(vk::CommandBuffer cmdbuf, vk::ImageView depth_view,
                                 vk::ImageView motion_view, u32 width, u32 height) {
+    if (game_motion_mode && game_motion_id) {
+        // iss: the game's vectors, converted (game_motion.comp).
+        auto& game = texture_cache.GetImage(game_motion_id);
+        if (!game_view || game_view_image != game.GetImage() || game_view_uid != game.image_uid) {
+            const auto device = instance.GetDevice();
+            if (game_view) {
+                scheduler.DeferOperation([device, view = game_view] { device.destroyImageView(view); });
+            }
+            game_view = Check(device.createImageView({
+                .image = game.GetImage(),
+                .viewType = vk::ImageViewType::e2D,
+                .format = vk::Format::eR16G16Sfloat,
+                .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
+            }));
+            game_view_image = game.GetImage();
+            game_view_uid = game.image_uid;
+        }
+        runtime.Transit(&game, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eComputeShader,
+                        vk::AccessFlagBits2::eShaderRead);
+        runtime.FlushBarriers();
+        const PushConstants push{
+            .reproject = {},
+            .proj = {},
+            .prev_proj = {},
+            .size = {float(width), float(height)},
+            .jitter = jitter,
+            .previous_jitter = previous_jitter,
+            .mode = 0u,
+        };
+        const vk::DescriptorImageInfo game_info{.imageView = game_view,
+                                                .imageLayout = vk::ImageLayout::eGeneral};
+        const vk::DescriptorImageInfo out_info{.imageView = motion_view,
+                                               .imageLayout = vk::ImageLayout::eGeneral};
+        const std::array<vk::WriteDescriptorSet, 3> writes = {{
+            {.dstBinding = 0, .descriptorCount = 1,
+             .descriptorType = vk::DescriptorType::eSampledImage, .pImageInfo = &game_info},
+            {.dstBinding = 1, .descriptorCount = 1,
+             .descriptorType = vk::DescriptorType::eStorageImage, .pImageInfo = &out_info},
+            {.dstBinding = 2, .descriptorCount = 1,
+             .descriptorType = vk::DescriptorType::eSampledImage, .pImageInfo = &game_info},
+        }};
+        cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, *game_motion_pipeline);
+        cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *motion_pipeline_layout, 0,
+                                    writes);
+        cmdbuf.pushConstants(*motion_pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0,
+                             sizeof(push), &push);
+        cmdbuf.dispatch((width + 7) / 8, (height + 7) / 8, 1);
+        return;
+    }
     bool object_valid = false;
     const vk::ImageView object_view = object_motion && object_motion->Enabled()
         ? object_motion->PrepareRead(cmdbuf, width, height, object_valid) : depth_view;
@@ -251,6 +335,7 @@ void CameraMotion::OnDisplayPass(VideoCore::ImageId frame) {
     if (!frame_has_camera) InvalidateHistory();
     frame_has_camera = false;
     depth_id = {};
+    game_motion_id = {};
 }
 
 void CameraMotion::Overlay(VideoCore::ImageId frame) {

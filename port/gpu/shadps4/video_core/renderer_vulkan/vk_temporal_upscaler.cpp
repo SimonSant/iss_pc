@@ -178,6 +178,15 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
     if (const char* hash = std::getenv("TLG_UPSCALE_BEFORE_CS")) {
         trigger_hash = std::strtoull(hash, nullptr, 16);
     }
+    if (const char* list = std::getenv("TLG_UPSCALE_BEFORE_PS")) {
+        for (const char* p = list; *p;) {
+            char* end = nullptr;
+            const u64 hash = std::strtoull(p, &end, 16);
+            if (end == p) break;
+            trigger_ps.push_back(hash);
+            p = *end == ',' ? end + 1 : end;
+        }
+    }
     if (const char* hash = std::getenv("TLG_UI_TRIGGER_VS")) {
         ui_trigger_vs = std::strtoull(hash, nullptr, 16);
     }
@@ -359,6 +368,19 @@ bool TemporalUpscaler::OnFrameStart() {
 
 void TemporalUpscaler::OnDispatch(u64 cs_hash) {
     if (cs_hash != trigger_hash || done_this_frame || failed || Scaled()) {
+        return;
+    }
+    done_this_frame = true;
+    if (!scene_color || !camera_motion.Ready() || !Active()) {
+        reset = true;
+        return;
+    }
+    Run();
+}
+
+void TemporalUpscaler::OnPixelShader(u64 ps_hash) {
+    if (trigger_ps.empty() || done_this_frame || failed || Scaled() ||
+        std::find(trigger_ps.begin(), trigger_ps.end(), ps_hash) == trigger_ps.end()) {
         return;
     }
     done_this_frame = true;
