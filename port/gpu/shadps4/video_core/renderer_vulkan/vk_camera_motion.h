@@ -61,6 +61,9 @@ public:
         return game_motion_mode;
     }
     [[nodiscard]] bool IsGameMotionShader(u64 ps_hash) const noexcept;
+    [[nodiscard]] VideoCore::ImageId GameMotion() const noexcept {
+        return game_motion_id;
+    }
     [[nodiscard]] bool GameMotionReady() const noexcept {
         return bool(game_motion_id);
     }
@@ -83,8 +86,11 @@ public:
 
     /// Records the motion vector pass: `depth_view` (depth aspect, General layout) into
     /// `motion_view` (RG16F storage, General), pixels, previous minus current.
+    /// `game_proxy`: with a reduced scene, the reduced copy of the game's motion vector target
+    /// that holds them (iss), read instead of the native image.
     void RecordMotion(vk::CommandBuffer cmdbuf, vk::ImageView depth_view, vk::ImageView motion_view,
-                      u32 width, u32 height);
+                      u32 width, u32 height, vk::ImageView game_proxy = {},
+                      vk::ImageLayout game_proxy_layout = vk::ImageLayout::eGeneral);
 
     /// A bound constant buffer of 864 bytes: checks the scene constant signature.
     void OnConstants(const float* data);

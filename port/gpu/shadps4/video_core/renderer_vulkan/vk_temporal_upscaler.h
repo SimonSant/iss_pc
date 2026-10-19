@@ -231,6 +231,9 @@ private:
     vk::UniqueImageView ui_depth_view;
     bool depth_blit = false;
     bool scaled_session = false;
+    /// iss: TLG_NATIVE_OUTPUT=1: the game renders at the output resolution (resolution patch); the
+    /// scene is reduced by the preset and upscaled back to it in place (not a scaled session).
+    bool native_output = false;
     u32 ui_width = 0, ui_height = 0;
     u32 render_width = 0, render_height = 0;
     vk::Format ui_format = vk::Format::eUndefined;

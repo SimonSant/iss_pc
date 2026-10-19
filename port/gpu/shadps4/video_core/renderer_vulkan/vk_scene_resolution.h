@@ -24,12 +24,15 @@ public:
     SceneTargets(const Instance&, Scheduler&, Runtime&, Lookup);
     ~SceneTargets();
     bool SetSize(SceneResolution::Size);
+    /// iss: the native size the proxies stand in for (TLG_NATIVE_OUTPUT); drops the proxies.
+    void SetNative(SceneResolution::Size);
     SceneResolution::Size Size() const { return size; }
-    bool Reduced() const { return size != SceneResolution::Size{}; }
+    bool Reduced() const { return size != SceneResolution::Native(); }
     /// A reduced proxy can stand in for the image: a 1920x1080 scene target or, scaled by
     /// the same factor, a half-resolution (960x540) one (toggle SceneHalfRes).
     bool Eligible(const VideoCore::Image&) const;
-    /// Eligible at the full scene size (1920x1080): the upscaler's inputs, the scene start.
+    /// Eligible at the full scene size (native: 1920x1080 unless TLG_NATIVE_OUTPUT): the
+    /// upscaler's inputs, the scene start.
     bool EligibleScene(const VideoCore::Image&) const;
     /// The proxy size of an eligible image: the scene size divided like the native size.
     SceneResolution::Size ProxySize(const VideoCore::Image&, u32 level = 0) const;

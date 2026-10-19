@@ -200,6 +200,12 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
     // Explicit resolution overrides retain the old compatibility path. Normal presets
     // keep guest allocations/UI native and change only host raster targets at frame boundaries.
     scaled_session = std::getenv("TLG_RENDER_RES") && std::getenv("TLG_RENDER_RES")[0];
+    if (const char* native = std::getenv("TLG_NATIVE_OUTPUT"); native && native[0] == '1') {
+        native_output = !scaled_session;
+        std::printf("Upscaler: native output %s (TLG_NATIVE_OUTPUT): the scene at the output "
+                    "resolution, reduced by the preset\n",
+                    native_output ? "on" : "off with TLG_RENDER_RES");
+    }
     render_width = 1920;
     render_height = 1080;
     if (const char* res = std::getenv("TLG_RENDER_RES")) {
@@ -326,6 +332,9 @@ bool TemporalUpscaler::OnFrameStart() {
     // Dynamic scene resolution scaling (live preset switching) works on all GPUs.
     // On GPUs without D32S8 blit support, UI depth is cleared instead of copied from scene.
     if (!scaled_session) {
+        if (native_output) {
+            scene_targets.SetNative({target_width, target_height});
+        }
         scene_targets.SetSize(SceneResolution::ForPreset(active ? preset : 0,
                                                         {target_width, target_height}));
         render_width = scene_targets.Size().width;
@@ -360,7 +369,7 @@ bool TemporalUpscaler::OnFrameStart() {
     // CameraMotion::OnDisplayPass has already cleared Depth(). Use the context's render
     // size, which survives the frame boundary (Performance 960 -> 1920 needs 32 phases).
     const u32 phases = Scaled() ? Motion::JitterPhases(render_width, target_width)
-        : Motion::JitterPhases(scene_targets.Size().width, 1920);
+        : Motion::JitterPhases(scene_targets.Size().width, SceneResolution::Native().width);
     jitter_index = jitter_index % phases + 1;
     jitter = {Halton(jitter_index, 2) - 0.5f, Halton(jitter_index, 3) - 0.5f};
     return changed;
@@ -1084,6 +1093,19 @@ void TemporalUpscaler::Run() {
         input_color_view = c.view;
         input_depth_view = d.view;
     }
+    // iss: the game's motion vectors, drawn into a reduced proxy with the rest of the scene.
+    vk::ImageView game_proxy{};
+    vk::ImageLayout game_proxy_layout = vk::ImageLayout::eGeneral;
+    if (reduced && camera_motion.GameMotionMode() && camera_motion.GameMotionReady()) {
+        auto& game = texture_cache.GetImage(camera_motion.GameMotion());
+        if (scene_targets.ProxyCurrent(game)) {
+            VideoCore::ImageViewInfo gi;
+            gi.format = vk::Format::eR16G16Sfloat;
+            const auto g = scene_targets.Read(camera_motion.GameMotion(), gi);
+            game_proxy = g.view;
+            game_proxy_layout = g.layout;
+        }
+    }
     const auto cmdbuf = scheduler.CommandBuffer();
 
     const auto own_barrier = [&](vk::Image image, vk::ImageLayout old_layout,
@@ -1111,7 +1133,8 @@ void TemporalUpscaler::Run() {
     own_barrier(vk::Image(output_image), vk::ImageLayout::eUndefined, all,
                 vk::AccessFlagBits2::eNone, vk::ImageLayout::eGeneral, all, rw);
 
-    camera_motion.RecordMotion(cmdbuf, input_depth_view, *motion_view, w, h);
+    camera_motion.RecordMotion(cmdbuf, input_depth_view, *motion_view, w, h, game_proxy,
+                               game_proxy_layout);
     own_barrier(vk::Image(motion_image), vk::ImageLayout::eGeneral,
                 vk::PipelineStageFlagBits2::eComputeShader, vk::AccessFlagBits2::eShaderWrite,
                 vk::ImageLayout::eGeneral, all, vk::AccessFlagBits2::eShaderRead);
@@ -1323,12 +1346,13 @@ std::array<u32, 2> TemporalUpscaler::SceneSize(u32 w, u32 h) const {
 float TemporalUpscaler::SceneMipBias() const {
     if (!Active() || TlgSettings::Get().upscaler == TlgSettings::UpscalerTaa) return 0.0f;
     const float render = float(TlgSettings::Get().active_render_width.load());
-    const float output = float(Scaled() ? target_width : 1920u);
+    const float output = float(Scaled() ? target_width : SceneResolution::Native().width);
     return render > 0.0f && render < output ? std::log2(render / output) : 0.0f;
 }
 
 bool TemporalUpscaler::Scaled() const {
-    return scaled_session || target_width != 1920 || target_height != 1080;
+    return scaled_session ||
+           (!native_output && (target_width != 1920 || target_height != 1080));
 }
 
 void TemporalUpscaler::OnColorTarget(VideoCore::ImageId color) {

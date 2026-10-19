@@ -212,11 +212,14 @@ vk::Image CameraMotion::ObjectMotionImage(u32 width, u32 height) const noexcept 
 }
 
 void CameraMotion::RecordMotion(vk::CommandBuffer cmdbuf, vk::ImageView depth_view,
-                                vk::ImageView motion_view, u32 width, u32 height) {
+                                vk::ImageView motion_view, u32 width, u32 height,
+                                vk::ImageView game_proxy, vk::ImageLayout game_proxy_layout) {
     if (game_motion_mode && game_motion_id) {
         // iss: the game's vectors, converted (game_motion.comp).
         auto& game = texture_cache.GetImage(game_motion_id);
-        if (!game_view || game_view_image != game.GetImage() || game_view_uid != game.image_uid) {
+        if (game_proxy) {
+            // Reduced scene: SceneTargets::Read transitioned the proxy already.
+        } else if (!game_view || game_view_image != game.GetImage() || game_view_uid != game.image_uid) {
             const auto device = instance.GetDevice();
             if (game_view) {
                 scheduler.DeferOperation([device, view = game_view] { device.destroyImageView(view); });
@@ -230,9 +233,12 @@ void CameraMotion::RecordMotion(vk::CommandBuffer cmdbuf, vk::ImageView depth_vi
             game_view_image = game.GetImage();
             game_view_uid = game.image_uid;
         }
-        runtime.Transit(&game, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eComputeShader,
-                        vk::AccessFlagBits2::eShaderRead);
-        runtime.FlushBarriers();
+        if (!game_proxy) {
+            runtime.Transit(&game, vk::ImageLayout::eGeneral,
+                            vk::PipelineStageFlagBits2::eComputeShader,
+                            vk::AccessFlagBits2::eShaderRead);
+            runtime.FlushBarriers();
+        }
         const PushConstants push{
             .reproject = {},
             .proj = {},
@@ -242,8 +248,9 @@ void CameraMotion::RecordMotion(vk::CommandBuffer cmdbuf, vk::ImageView depth_vi
             .previous_jitter = previous_jitter,
             .mode = 0u,
         };
-        const vk::DescriptorImageInfo game_info{.imageView = game_view,
-                                                .imageLayout = vk::ImageLayout::eGeneral};
+        const vk::DescriptorImageInfo game_info{
+            .imageView = game_proxy ? game_proxy : game_view,
+            .imageLayout = game_proxy ? game_proxy_layout : vk::ImageLayout::eGeneral};
         const vk::DescriptorImageInfo out_info{.imageView = motion_view,
                                                .imageLayout = vk::ImageLayout::eGeneral};
         const std::array<vk::WriteDescriptorSet, 3> writes = {{
