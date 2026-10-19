@@ -141,7 +141,7 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
     };
 
     if (!recording_threaded) {
-        if (FullBarriers(SiteRender)) {
+        if (FullBarriers(SiteRender) || PassBarriers()) {
             RecordFullBarrier(current_cmdbuf);
         }
         current_cmdbuf.beginRendering(rendering_info);
@@ -157,7 +157,7 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
         if (info.pStencilAttachment) {
             info.pStencilAttachment = &stencil_attachment;
         }
-        if (FullBarriers(SiteRender)) {
+        if (FullBarriers(SiteRender) || PassBarriers()) {
             RecordFullBarrier(cmdbuf);
         }
         cmdbuf.beginRendering(info);
@@ -176,10 +176,8 @@ void Scheduler::EndRendering() {
     is_rendering = false;
     Record([](vk::CommandBuffer cmdbuf) {
         cmdbuf.endRendering();
-        if (FullBarriers(SiteRender)) {
+        if (FullBarriers(SiteRender) || PassBarriers()) {
             RecordFullBarrier(cmdbuf);
-        } else if (PassBarriers()) {
-            RecordPassBarrier(cmdbuf);
         }
     });
 }
@@ -188,38 +186,24 @@ void Scheduler::EndRendering() {
 // memory writes as writes: a target drawn by one render pass and drawn or blended again by a
 // later one in the same layout gets no barrier, and the later pass can read rows the earlier one
 // has not written yet. At native 4K (inFAMOUS, PS4 Pro mode) the motion blur showed it as a band
-// of blocks in the lower part of the screen (passes run long enough to overlap). One barrier at
-// the end of each render pass orders its attachment writes before any later attachment access.
-// TLG_PASS_BARRIERS=0 turns it off.
+// of blocks in the lower part of the screen (passes run long enough to overlap); a barrier for
+// attachment writes alone did not remove it. A full barrier at the start and at the end of each
+// render pass, what TLG_FULL_BARRIERS=1 with TLG_FULL_BARRIERS_SITES=1 showed to remove it, is
+// the default in PS4 Pro mode and with TLG_NATIVE_OUTPUT; narrowing it down is left for later.
 bool Scheduler::PassBarriers() {
     static const bool enabled = [] {
+        // Default: on where it was seen (PS4 Pro mode, native output); 0/1 force it.
         const char* env = std::getenv("TLG_PASS_BARRIERS");
-        const bool on = !(env && env[0] == '0');
-        std::printf("GPU: render pass end barriers %s (TLG_PASS_BARRIERS)\n", on ? "on" : "off");
+        const char* neo = std::getenv("TLG_NEO_MODE");
+        const char* native = std::getenv("TLG_NATIVE_OUTPUT");
+        const bool on = env && env[0] ? env[0] == '1'
+                                      : (neo && neo[0] == '1') || (native && native[0] == '1');
+        std::printf("GPU: render pass barriers %s (TLG_PASS_BARRIERS)\n", on ? "on" : "off");
         return on;
     }();
     return enabled;
 }
 
-void Scheduler::RecordPassBarrier(vk::CommandBuffer cmdbuf) {
-    constexpr auto attachment_stages = vk::PipelineStageFlagBits2::eColorAttachmentOutput |
-                                       vk::PipelineStageFlagBits2::eEarlyFragmentTests |
-                                       vk::PipelineStageFlagBits2::eLateFragmentTests;
-    const vk::MemoryBarrier2 barrier{
-        .srcStageMask = attachment_stages,
-        .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite |
-                         vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-        .dstStageMask = attachment_stages,
-        .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentRead |
-                         vk::AccessFlagBits2::eColorAttachmentWrite |
-                         vk::AccessFlagBits2::eDepthStencilAttachmentRead |
-                         vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-    };
-    cmdbuf.pipelineBarrier2(vk::DependencyInfo{
-        .memoryBarrierCount = 1,
-        .pMemoryBarriers = &barrier,
-    });
-}
 
 void Scheduler::TraceDirectRecording(void* caller) {
     static const bool enabled = [] {
