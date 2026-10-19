@@ -47,10 +47,57 @@ def mods_dir(settings=None):
     In PS4 Pro mode, user_dir()/mods-pro when it exists: patches made for the Pro mode (4K)."""
     pro = user_dir() / 'mods-pro'
     if not os.environ.get('ISS_MODS_DIR') and settings and settings.get('neo_mode') and pro.is_dir():
-        return pro
+        return pro_mods_run(pro, pro_scene_size(settings))
     directory = Path(os.environ.get('ISS_MODS_DIR') or user_dir() / 'mods')
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+# PS4 Pro mode's render size patch (AYOUB1080p's "PS4 Pro mode: native WxH without checkerboard",
+# update 1.07): one instruction, then the width and the height as 32-bit immediates.
+PRO_SIZE_PATCH = ((0x005f0cbd, '4531C990'), 0x005f0d3e, 0x005f0d4d)
+PRESET_SCALES = (1.0, 1.5, 1.7, 2.0, 3.0)   # gpu/shim tlg_settings PresetScale
+
+
+def pro_scene_size(settings):
+    """The size PS4 Pro mode renders at: 3840x2160, or less for an FSR quality mode (tlg.ini
+    upscaler/preset), which FSR upscales back to 4K. Width in steps of 64, 16:9."""
+    ini = read_ini(user_dir() / 'tlg.ini')
+    try:
+        preset = int(ini.get('preset', '0'))
+    except ValueError:
+        preset = 0
+    if ini.get('upscaler', 'off') in ('', 'off') or not 0 < preset < len(PRESET_SCALES):
+        return 3840, 2160
+    width = int(round(3840 / PRESET_SCALES[preset] / 64)) * 64
+    return width, width * 9 // 16
+
+
+def pro_mods_run(source, size):
+    """user_dir()/mods-pro-run: the mods-pro files without their Pro mode size patches, plus one
+    for `size` (rewritten at every start)."""
+    import re
+    run = user_dir() / 'mods-pro-run'
+    run.mkdir(parents=True, exist_ok=True)
+    for old in run.glob('*.xml'):
+        old.unlink()
+    pattern = re.compile(r'<Metadata\b[^>]*Name="PS4 Pro mode: native [^"]*"[^>]*>.*?</Metadata>\s*', re.S)
+    for path in Path(source).glob('*.xml'):
+        text = path.read_text(encoding='utf-8', errors='replace')
+        (run / path.name).write_text(pattern.sub('', text), encoding='utf-8')
+    (code_address, code), width_address, height_address = PRO_SIZE_PATCH
+    width, height = size
+    hexle = lambda n: n.to_bytes(4, 'little').hex().upper()
+    (run / 'zz-pro-size.xml').write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n<Patch>\n'
+        f'    <Metadata Title="inFAMOUS Second Son" Name="PS4 Pro mode: native {width}x{height} (launcher)" '
+        'Note="Written by the launcher from the PS4 Pro mode and FSR quality mode." Author="AYOUB1080p" '
+        'PatchVer="1.0" AppVer="01.07" AppElf="eboot.bin" isEnabled="true">\n        <PatchList>\n'
+        f'            <Line Type="bytes" Address="0x{code_address:08x}" Value="{code}"/>\n'
+        f'            <Line Type="bytes" Address="0x{width_address:08x}" Value="{hexle(width)}"/>\n'
+        f'            <Line Type="bytes" Address="0x{height_address:08x}" Value="{hexle(height)}"/>\n'
+        '        </PatchList>\n    </Metadata>\n</Patch>\n', encoding='utf-8')
+    return run
 
 
 def mods_config():
@@ -625,10 +672,16 @@ def apply_fsr_choice(env, settings):
     if ini.get('upscaler', 'off') in ('', 'off'):
         return
     env['ISS_UPSCALER'] = '1'
-    # Pro mode draws the scene at 4K: FSR's output is 4K and the quality modes reduce from it.
+    # Pro mode: FSR's output is 4K. A quality mode makes the game itself render smaller (Pro size
+    # patch, mods_dir) and FSR upscale it: the startup-resolution path (TLG_RENDER_RES).
     output = '3840x2160' if neo else '1920x1080'
     if neo:
-        env.setdefault('TLG_NATIVE_OUTPUT', '1')
+        width, height = pro_scene_size(settings)
+        if (width, height) == (3840, 2160):
+            env.setdefault('TLG_NATIVE_OUTPUT', '1')
+        else:
+            env.setdefault('TLG_RENDER_RES', f'{width}x{height}')
+            env.setdefault('TLG_OUTPUT_RES', output)
     if ini.get('output_res') != output:
         update_ini(path, {'output_res': output})
 

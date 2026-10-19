@@ -406,8 +406,11 @@ void ImageTab() {
         ImGui::BeginDisabled(s.upscaler == TlgSettings::UpscalerOff);
         ChoiceRow(TL("Quality mode", "Modo de qualidade"), s.preset, presets, nullptr,
                   TlgSettings::PresetCount,
-                  TL("Scene resolution before FSR: native, then 67%, 59%, 50% and 33%. Lower is faster.",
-                     "Resolução da cena antes do FSR: nativa, depois 67%, 59%, 50% e 33%. Menor é mais rápido."));
+                  TlgSettings::FixedRenderSession()
+                      ? TL("PS4 Pro mode: the game renders at this size from the next start (the launcher sets it).",
+                           "Modo PS4 Pro: o jogo passa a desenhar nesse tamanho no próximo início (o launcher ajusta).")
+                      : TL("Scene resolution before FSR: native, then 67%, 59%, 50% and 33%. Lower is faster.",
+                           "Resolução da cena antes do FSR: nativa, depois 67%, 59%, 50% e 33%. Menor é mais rápido."));
         CheckRow(TL("FSR sharpening", "Nitidez do FSR"), s.sharpen,
                  TL("FSR's own sharpening (RCAS) on the upscaled image.",
                     "A nitidez do próprio FSR (RCAS) na imagem ampliada."));

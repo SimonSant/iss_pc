@@ -308,8 +308,11 @@ void ConfigureDlssSupport(bool available, const char* problem) {
 }
 
 bool FixedRenderSession() {
+    // iss: PS4 Pro mode renders at the size its startup patch sets (the launcher picks it from the
+    // quality mode), so a preset change waits for the next start there too.
     const char* size = std::getenv("TLG_RENDER_RES");
-    return size && size[0];
+    const char* neo = std::getenv("TLG_NEO_MODE");
+    return (size && size[0]) || (neo && neo[0] == '1');
 }
 
 int RenderPreset() {
