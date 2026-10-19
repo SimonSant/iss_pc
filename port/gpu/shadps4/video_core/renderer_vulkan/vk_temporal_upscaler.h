@@ -172,6 +172,11 @@ private:
     [[nodiscard]] bool UseFsr4() const;
     /// tlg: DLSS selected and the bridge is ready (NVIDIA RTX, tlg_dlss.dll).
     [[nodiscard]] bool UseDlss() const;
+    /// FSR 3.1 through amd_fidelityfx_vk.dll (what OptiScaler intercepts), when it is present.
+    [[nodiscard]] bool UseFfx() const;
+    bool RecordFfx(vk::CommandBuffer cmdbuf, const Dlss::Resource& color,
+                   const Dlss::Resource& depth, u32 w, u32 h, u32 ow, u32 oh, float frame_ms,
+                   bool hdr);
     /// Records DLSS into `cmdbuf` (output in General). `hdr`: linear scene color input.
     bool RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource& color,
                     const Dlss::Resource& depth, u32 w, u32 h, u32 ow, u32 oh, float frame_ms,
@@ -263,6 +268,7 @@ private:
     std::unique_ptr<Fsr4Upscaler> fsr4;
     bool fsr4_failed = false;
     bool dlss_failed = false;
+    bool ffx_failed = false;
     VideoCore::UniqueImage motion_image;
     VideoCore::UniqueImage output_image;
     vk::UniqueImageView motion_view;

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "video_core/renderer_vulkan/vk_temporal_upscaler.h"
+#include "video_core/renderer_vulkan/vk_ffx_api.h"
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
 #include "video_core/renderer_vulkan/motion_history.h"
 #include "video_core/renderer_vulkan/vk_scene_resolution.h"
@@ -253,7 +254,7 @@ bool TemporalUpscaler::Active() const {
 
 bool TemporalUpscaler::ReactiveOn() const {
     // FSR 4 takes no reactive mask: the opaque snapshot and the mask pass would be wasted.
-    return TlgSettings::Get().reactive && !TlgToggle::Disabled(1u << 27) && !UseFsr4() && !UseDlss() &&
+    return TlgSettings::Get().reactive && !TlgToggle::Disabled(1u << 27) && !UseFsr4() && !UseDlss() && !UseFfx() &&
            TlgSettings::Get().upscaler != TlgSettings::UpscalerTaa;
 }
 
@@ -423,7 +424,7 @@ void TemporalUpscaler::OnPixelShader(u64 ps_hash) {
 
 bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     // DLSS, like FSR 4, has its own context: no portable FSR 3 context is made.
-    const bool use_fsr4 = UseFsr4() || UseDlss();
+    const bool use_fsr4 = UseFsr4() || UseDlss() || UseFfx();
     const bool use_taa = TlgSettings::Get().upscaler == TlgSettings::UpscalerTaa;
     if (use_taa && (w != ow || h != oh)) {
         std::printf("TAA: remove TLG_RENDER_RES to use native-resolution TAA\n");
@@ -1155,7 +1156,7 @@ void TemporalUpscaler::Run() {
     } else if (UseFsr4()) {
         dispatched = RecordFsr4(cmdbuf, {input_color, input_color_view, w, h},
                                 {input_depth, input_depth_view, w, h}, w, h, ow, oh, frame_ms);
-    } else if (UseDlss()) {
+    } else if (UseDlss() || UseFfx()) {
         dispatched = RecordDlss(
             cmdbuf,
             {input_color, input_color_view, color.info.pixel_format, vk::ImageAspectFlagBits::eColor, w, h},
@@ -1682,14 +1683,15 @@ void TemporalUpscaler::RunScaled() {
     last_frame = now;
 
     // tlg: FSR 4 writes its HDR-format output, copied into the output-size UI image.
-    if (UseFsr4() || UseDlss() || TlgSettings::Get().upscaler == TlgSettings::UpscalerTaa) {
+    if (UseFsr4() || UseDlss() || UseFfx() ||
+        TlgSettings::Get().upscaler == TlgSettings::UpscalerTaa) {
         barrier(vk::Image(output_image), vk::ImageAspectFlagBits::eColor,
                 vk::ImageLayout::eUndefined, all, vk::AccessFlagBits2::eNone,
                 vk::ImageLayout::eGeneral, all, rw);
         bool ok4 = true;
         if (TlgSettings::Get().upscaler == TlgSettings::UpscalerTaa) {
             RecordTaa(cmdbuf, color_view, depth_view);
-        } else if (UseDlss()) {
+        } else if (UseDlss() || UseFfx()) {
             ok4 = RecordDlss(cmdbuf,
                              {color_image, color_view, color.info.pixel_format,
                               vk::ImageAspectFlagBits::eColor, source_width, source_height},
@@ -2056,6 +2058,9 @@ bool TemporalUpscaler::UseDlss() const {
 bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource& color,
                                   const Dlss::Resource& depth, u32 w, u32 h, u32 ow, u32 oh,
                                   float frame_ms, bool hdr) {
+    if (UseFfx()) {
+        return RecordFfx(cmdbuf, color, depth, w, h, ow, oh, frame_ms, hdr);
+    }
     Dlss* dlss = Dlss::Get();
     const Dlss::FeatureDesc desc{w, h, ow, oh, Dlss::QualityForScale(float(ow) / float(w)), hdr};
     bool ok = true;
@@ -2088,6 +2093,54 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         std::printf("Upscaler: DLSS failed; falling back to FSR 3.1\n");
         TlgSettings::Get().upscaler = TlgSettings::UpscalerFsr3;
         dlss_failed = true; // EnsureResources creates the FSR 3 context next frame
+        reset = true;
+    }
+    return ok;
+}
+
+bool TemporalUpscaler::UseFfx() const {
+    return TlgSettings::Get().upscaler == TlgSettings::UpscalerFsr3 && FfxApi::Get() && !ffx_failed;
+}
+
+bool TemporalUpscaler::RecordFfx(vk::CommandBuffer cmdbuf, const Dlss::Resource& color,
+                                 const Dlss::Resource& depth, u32 w, u32 h, u32 ow, u32 oh,
+                                 float frame_ms, bool hdr) {
+    FfxApi* ffx = FfxApi::Get();
+    const FfxApi::ContextDesc desc{w, h, ow, oh, hdr};
+    bool ok = true;
+    if (!ffx->HasContext(desc)) {
+        // The previous context may still be in use by submitted work; `cmdbuf` stays open.
+        scheduler.WaitSubmitted();
+        ok = ffx->CreateContext(instance.GetPhysicalDevice(), instance.GetDevice(), desc);
+        reset = true;
+    }
+    if (ok) {
+        // The jitter and motion vectors the built-in FSR 3 gets.
+        const float sign = TlgToggle::Disabled(1u << 26) ? -1.0f : 1.0f;
+        const auto& settings = TlgSettings::Get();
+        ok = ffx->Dispatch(cmdbuf,
+                           {
+                               .color = color,
+                               .depth = depth,
+                               .motion = {vk::Image(motion_image), *motion_view,
+                                          vk::Format::eR16G16Sfloat,
+                                          vk::ImageAspectFlagBits::eColor, w, h},
+                               .output = {vk::Image(output_image), *output_view,
+                                          vk::Format::eR16G16B16A16Sfloat,
+                                          vk::ImageAspectFlagBits::eColor, ow, oh},
+                               .jitter_x = sign * jitter[0],
+                               .jitter_y = sign * jitter[1],
+                               .reset = reset,
+                               .frame_ms = frame_ms,
+                               .sharpness = settings.sharpen
+                                                ? std::min(settings.sharpness.load(), 1.0f)
+                                                : 0.0f,
+                           },
+                           {camera_motion.Near(), 3000.0f, camera_motion.VerticalFov()});
+    }
+    if (!ok) {
+        std::printf("Upscaler: FFX API failed; using the built-in FSR 3.1\n");
+        ffx_failed = true; // EnsureResources creates the FSR 3 context next frame
         reset = true;
     }
     return ok;
