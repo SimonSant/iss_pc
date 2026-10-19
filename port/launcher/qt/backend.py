@@ -22,7 +22,9 @@ LOG_POLL_MS = 1000        # how often the game's log file is read for the panel
 CLOSE_DELAY_MS = 2000     # 'Close the launcher when the game starts': wait after the start
 
 URLS = {'channel': 'https://www.youtube.com/@hayatog-dev', 'discord': 'https://discord.gg/UMkdMYZh9g',
-        'sponsor': 'https://github.com/sponsors/HayatoG'}
+        'sponsor': 'https://github.com/sponsors/HayatoG',
+        'coffee': 'https://buymeacoffee.com/hayatog',
+        'apolar': 'https://github.com/sapoguruoficial-cmd'}
 
 
 class FixesModel(QAbstractListModel):
@@ -161,6 +163,7 @@ class Backend(QObject):
         """probes: optional dict of callables replacing the slow/hardware ones (tests, screenshots)."""
         super().__init__()
         self.langChanged.connect(self.gameLanguageChanged)   # 'Automatic: <name>' follows the interface language
+        self.gameDirChanged.connect(self.gameLanguageChanged)   # the languages offered follow the game files
         self.settings = tlg_run.load_settings() if settings is None else settings
         self.t_ = translator or logic.Translator(self.settings)
         self.probes = probes or {}
@@ -445,6 +448,8 @@ class Backend(QObject):
     # -- play (same path as the Tk launcher: prepare() then launch()) -------------------------------
     @Slot()
     def play(self):
+        if self.updates.busy:
+            return
         if self._play_state != 'idle' or not self._ready:
             return
         tlg_run.save_settings(self.settings)
@@ -601,8 +606,7 @@ class Backend(QObject):
 
     @Slot()
     def openModsFolder(self):
-        from PySide6.QtGui import QDesktopServices
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(tlg_run.mods_dir())))
+        tlg_run.open_external(tlg_run.mods_dir())
 
     @Property(str, notify=profileChanged)
     def profileText(self):
@@ -648,15 +652,15 @@ class Backend(QObject):
         self.setFix(self._verbose_log_item().id, '1' if on else '0')
 
     # -- game language (voice and text; the interface language above is separate) ---------------
-    @Property('QVariantList', notify=langChanged)
+    @Property('QVariantList', notify=gameLanguageChanged)
     def gameLanguageOptions(self):
-        """'Automatic' first, then the six languages in the order of infamous_run.GAME_LANGUAGES."""
-        return [{'value': 'auto', 'label': self.t_('game_language_auto')}] + [
-            {'value': k, 'label': logic.GAME_LANGUAGE_NAMES.get(k, k)} for k in tlg_run.GAME_LANGUAGES]
+        """'Automatic' first, then the languages of infamous_run.game_language_choices (those the game files have)."""
+        return [{'value': k, 'label': self.t_('game_language_auto') if k == 'auto'
+                 else logic.GAME_LANGUAGE_NAMES.get(k, k)} for k in tlg_run.game_language_choices(self.settings)]
 
     @Property(int, notify=gameLanguageChanged)
     def gameLanguageIndex(self):
-        keys = ['auto'] + list(tlg_run.GAME_LANGUAGES)
+        keys = tlg_run.game_language_choices(self.settings)
         return keys.index(self.settings.get('game_language')) if self.settings.get('game_language') in keys else 0
 
     @Property(str, notify=gameLanguageChanged)

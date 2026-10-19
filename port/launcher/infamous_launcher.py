@@ -85,9 +85,9 @@ TEXT = {
     'mods': ('Mods / Cheats…', 'Mods / Cheats…'),
     'mods_title': ('Mods / Cheats', 'Mods / Cheats'),
     'mods_hint': ('Drop shadPS4/GoldHEN cheat XML files in the mods folder, then turn them on here. '
-                  'Nothing here changes the game until you enable it.',
+                  'The built-in boot intro skip is off by default. Nothing changes until you enable a mod.',
                   'Solte arquivos de cheat XML no formato shadPS4/GoldHEN na pasta de mods e ligue aqui. '
-                  'Nada muda no jogo até você ativar.'),
+                  'O patch incluído para pular o vídeo inicial vem desligado. Nada muda até você ativar um mod.'),
     'mods_warning': ('A cheat can crash the game or behave oddly; if that happens, turn it off here.',
                      'Um cheat pode travar o jogo ou se comportar de forma estranha; se isso acontecer, desligue aqui.'),
     'mods_folder': ('Open mods folder', 'Abrir pasta de mods'),
@@ -107,6 +107,7 @@ TEXT = {
     'already': ('The game is already running.', 'O jogo já está rodando.'),
     'error': ('Error', 'Erro'),
     'port_by': ('PC port by HayatoG', 'Port para PC por HayatoG'),
+    'coffee': ('Buy me a coffee', 'Apoie com um café'),
     'channel': ('YouTube channel: @hayatog-dev', 'Canal no YouTube: @hayatog-dev'),
     'discord': ('Discord community', 'Comunidade no Discord'),
     'sponsor': ('♥ Sponsor on GitHub', '♥ Apoie no GitHub'),
@@ -156,11 +157,17 @@ TEXT = {
 TEXT.update(preset_share.TEXT)   # export / import of configuration files
 TEXT.update(precompile.TEXT)   # shader list texts: one table for both launchers
 TEXT.update(tlg_run.TEXT)  # game folder problems (old libc.prx, other eboot), shared with the command line
+COFFEE_URL = 'https://buymeacoffee.com/hayatog'
 CHANNEL_URL = 'https://www.youtube.com/@hayatog-dev'
 DISCORD_URL = 'https://discord.gg/UMkdMYZh9g'
 SPONSOR_URL = 'https://github.com/sponsors/HayatoG'
-GAME_LANGUAGE_NAMES = {'en': 'English', 'pt_BR': 'Português (Brasil)', 'es_LA': 'Español (Latinoamérica)',
-                       'fr_CA': 'Français (Canada)', 'tr': 'Türkçe', 'ru': 'Русский'}
+GAME_LANGUAGE_NAMES = {'en': 'English', 'en_GB': 'English (UK)', 'pt_BR': 'Português (Brasil)',
+                       'pt_PT': 'Português (Portugal)', 'es_LA': 'Español (Latinoamérica)', 'es': 'Español (España)',
+                       'fr_CA': 'Français (Canada)', 'fr': 'Français', 'de': 'Deutsch', 'it': 'Italiano',
+                       'nl': 'Nederlands', 'pl': 'Polski', 'tr': 'Türkçe', 'ru': 'Русский', 'cs': 'Čeština',
+                       'hu': 'Magyar', 'el': 'Ελληνικά', 'ro': 'Română', 'fi': 'Suomi', 'sv': 'Svenska', 'da': 'Dansk',
+                       'no': 'Norsk', 'ar': 'العربية', 'ja': '日本語', 'ko': '한국어', 'zh_TW': '繁體中文',
+                       'zh_CN': '简体中文', 'th': 'ไทย', 'vi': 'Tiếng Việt', 'id': 'Bahasa Indonesia'}
 UI_LANGUAGES = ['auto', 'pt_BR', 'en_US']
 UI_LANGUAGE_NAMES = {'pt_BR': 'Português (Brasil)', 'en_US': 'English (US)'}
 DISPLAY_MODES = ['Windowed', 'Borderless', 'Fullscreen']
@@ -236,6 +243,13 @@ class Launcher:
         credits = ttk.Frame(header)
         credits.pack(side='right', anchor='ne')
         ttk.Label(credits, text=self.t('port_by'), foreground='#777').pack(anchor='e')
+        self.coffee_button = tk.Button(credits, text='☕  ' + self.t('coffee'),
+                                       command=lambda: tlg_run.open_external(COFFEE_URL),
+                                       background='#FFDD00', foreground='#000000',
+                                       activebackground='#FFE873', activeforeground='#000000',
+                                       font=('TkDefaultFont', 10, 'bold'), cursor='hand2',
+                                       relief='flat', padx=12, pady=7)
+        self.coffee_button.pack(anchor='e', pady=(6, 8))
         for key, url in (('channel', CHANNEL_URL), ('discord', DISCORD_URL), ('sponsor', SPONSOR_URL)):
             link = ttk.Label(credits, text=self.t(key), foreground='#2a6fdb', cursor='hand2',
                              font=('TkDefaultFont', 10, 'underline'))
@@ -287,9 +301,9 @@ class Launcher:
         lang.columnconfigure(1, weight=1)
         self.game_language_now = ttk.Label(lang)
         self.game_language_now.grid(row=0, column=2, sticky='w')
-        self.combo(lang, 0, 'game_language', ['auto'] + list(tlg_run.GAME_LANGUAGES),
-                   lambda k: self.t('game_language_auto') if k == 'auto' else GAME_LANGUAGE_NAMES[k],
-                   on_change=self.show_game_language)
+        self.game_language_keys = tlg_run.game_language_choices(self.settings)   # the languages the game files have
+        self.game_language_box = self.combo(lang, 0, 'game_language', self.game_language_keys, self.game_language_name,
+                                            on_change=self.show_game_language)
         self.show_game_language()
         self.combo(lang, 1, 'ui_language', UI_LANGUAGES,
                    lambda k: self.t('auto') if k == 'auto' else UI_LANGUAGE_NAMES[k], on_change=self.build)
@@ -410,6 +424,19 @@ class Launcher:
         box.bind('<<ComboboxSelected>>', picked)
         return box
 
+    def game_language_name(self, key):
+        return self.t('game_language_auto') if key == 'auto' else GAME_LANGUAGE_NAMES[key]
+
+    def refresh_game_languages(self):
+        """Another game folder: offer the languages its files have (combo() reads the same list)."""
+        keys = tlg_run.game_language_choices(self.settings)
+        if keys != self.game_language_keys:
+            self.game_language_keys[:] = keys
+            self.game_language_box.configure(values=[self.game_language_name(k) for k in keys])
+            current = self.settings.get('game_language', 'auto')
+            self.game_language_box.current(keys.index(current) if current in keys else 0)
+            self.show_game_language()
+
     def show_game_language(self):
         """Beside the box: which language 'Automatic' resolves to (same function that build_env uses)."""
         if self.settings.get('game_language', 'auto') in tlg_run.GAME_LANGUAGES:
@@ -491,6 +518,7 @@ class Launcher:
             except tk.TclError:
                 pass  # spinbox while typing
         tlg_run.save_settings(self.settings)
+        self.refresh_game_languages()
         self.refresh_status()
 
     def refresh_status(self):

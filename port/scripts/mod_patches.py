@@ -4,8 +4,9 @@
 
 Reads third-party patch XML files (the "PATCHES" format shadPS4/GoldHEN cheat tools use) from
 a user-writable mods directory, keeps only the ones that match this game's title ID and app
-version, and compiles their literal byte writes into (offset, bytes, description) triples the
-caller merges into its own G3PATCH2 patch file (the loader, probe.c apply_patches, already
+version, and compiles literal writes and unique pattern matches into (offset, bytes,
+description) triples the caller merges into its own G3PATCH2 patch file (the loader,
+probe.c apply_patches, already
 applies that format). A patch whose lines fall outside the eboot's segments is skipped on its
 own, never aborting the others or the port's own built-in patches.
 
@@ -18,6 +19,7 @@ isEnabled="true") turns it on in mods.json, same as shadPS4/GoldHEN. With nothin
 module writes nothing, so a port that never looks at it is byte-for-byte unaffected.
 """
 import json
+import re
 import struct
 import sys
 from pathlib import Path
@@ -64,14 +66,89 @@ def encode(line):
     raise ValueError(f'unsupported patch type {kind!r}')
 
 
-def external_patches(directory, app_version, ids):
+def _pattern(line):
+    """Parse a shadPS4/GoldHEN mask line into bytes and a byte mask."""
+    tokens = (line.get('Address') or '').split()
+    if not tokens:
+        raise ValueError('empty mask pattern')
+    pattern, mask = bytearray(), bytearray()
+    for token in tokens:
+        if token in ('?', '??'):
+            pattern.append(0)
+            mask.append(0)
+        elif re.fullmatch(r'[0-9a-fA-F]{2}', token):
+            pattern.append(int(token, 16))
+            mask.append(0xff)
+        else:
+            raise ValueError(f'invalid mask byte {token!r}')
+    return bytes(pattern), bytes(mask)
+
+
+def _executable_segments(elf):
+    """[(virtual address, file bytes)] of executable PT_LOAD segments."""
+    phoff, = struct.unpack_from('<Q', elf, 0x20)
+    phentsize, phnum = struct.unpack_from('<HH', elf, 0x36)
+    segments = []
+    for i in range(phnum):
+        kind, flags, offset, vaddr, _, filesz, _, _ = struct.unpack_from(
+            '<IIQQQQQQ', elf, phoff + i * phentsize)
+        if kind == 1 and flags & 1:
+            if offset + filesz > len(elf):
+                raise ValueError('executable segment extends past eboot')
+            segments.append((vaddr, elf[offset:offset + filesz]))
+    return segments
+
+
+def _compile_mask(line, executable_segments):
+    """Resolve one pattern patch only when its signature occurs exactly once."""
+    pattern, mask = _pattern(line)
+    # Use the longest fixed run as a C-level search anchor, then verify wildcards in Python.
+    # Scanning an eboot byte by byte in Python would make every launch noticeably slower.
+    runs = []
+    start = None
+    for i, fixed in enumerate(mask + b'\0'):
+        if fixed and start is None:
+            start = i
+        elif not fixed and start is not None:
+            runs.append((start, pattern[start:i]))
+            start = None
+    if not runs:
+        raise ValueError('mask pattern has no fixed bytes')
+    anchor_offset, anchor = max(runs, key=lambda run: len(run[1]))
+    matches = []
+    for vaddr, data in executable_segments:
+        search_at = 0
+        while True:
+            found = data.find(anchor, search_at)
+            if found < 0:
+                break
+            at = found - anchor_offset
+            search_at = found + 1
+            if at >= 0 and at + len(pattern) <= len(data) and all(
+                    not mask[i] or data[at + i] == pattern[i] for i in range(len(pattern))):
+                matches.append(vaddr + at)
+                if len(matches) > 1:
+                    raise ValueError('mask pattern is ambiguous (multiple matches)')
+    if not matches:
+        raise ValueError('mask pattern did not match this eboot')
+    try:
+        relative = int(line.get('Offset', '0'), 0)
+    except ValueError:
+        relative = int(line.get('Offset', '0'), 10)
+    offset = matches[0] + relative - EBOOT_BASE
+    return offset, encode({**line.attrib, 'Type': 'bytes'})
+
+
+def external_patches(directory, app_version, ids, builtin_files=()):
     """[(key, path, metadata)] of eboot patches for this version in directory/*.xml.
     key is "<file name>/<patch name>" (the launcher's selection key, mods.json). ids: this
     game's title IDs; a file that scopes itself with <ID> entries is kept only when one of
     them is ours, a file with none at all is assumed to be written for this game already."""
     found = []
     directory = Path(directory)
-    for path in sorted(directory.glob('*.xml')) if directory.is_dir() else []:
+    paths = sorted(directory.glob('*.xml')) if directory.is_dir() else []
+    paths.extend(Path(path) for path in builtin_files)
+    for path in paths:
         try:
             root = ET.parse(path).getroot()
         except ET.ParseError as error:
@@ -101,17 +178,28 @@ def external_selection(found, config):
             if key in enabled or (key not in disabled and meta.get('isEnabled', 'false').lower() == 'true')]
 
 
-def compile_external(selected, segments):
-    """[(offset, bytes, description)] writes of the selected patches. A patch with any line
-    outside the eboot's segments is skipped whole, so a mismatched or malformed cheat just
-    does not apply instead of writing somewhere wrong."""
+def compile_external(selected, segments, eboot=None):
+    """[(offset, bytes, description)] writes of selected patches.
+
+    Literal writes and unique executable-segment mask matches are supported. A patch with any
+    invalid line is skipped whole, so a mismatched or malformed cheat does not write somewhere
+    wrong.
+    """
     writes = []
+    executable = None
     for key, _, meta in selected:
         try:
             ours = []
             for line in meta.iter('Line'):
-                offset = int(line.get('Address') or '', 0) - EBOOT_BASE
-                data = encode(line)
+                if line.get('Type') == 'mask':
+                    if eboot is None:
+                        raise ValueError('mask patches need the eboot to locate their pattern')
+                    if executable is None:
+                        executable = _executable_segments(eboot)
+                    offset, data = _compile_mask(line, executable)
+                else:
+                    offset = int(line.get('Address') or '', 0) - EBOOT_BASE
+                    data = encode(line)
                 if not any(start <= offset and offset + len(data) <= end for start, end in segments):
                     raise ValueError(f'address {line.get("Address")} is outside the eboot')
                 ours.append((offset, data, f'{key} ({line.get("Address")})'))

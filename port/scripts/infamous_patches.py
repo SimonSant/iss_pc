@@ -20,6 +20,7 @@ import mod_patches
 
 TITLE_IDS = {'CUSA00223'}
 SELF_MAGIC = b'O\x15=\x1d'
+BUILTIN_MODS = (Path(__file__).resolve().parent.parent / 'patches' / 'iss_builtin_intro.xml',)
 
 
 def write_patch_file(path, writes):
@@ -57,9 +58,10 @@ def prepare(game_dir, out_dir, mods_dir=None, mods_config=None):
             try:
                 segments = mod_patches.eboot_segments(eboot)
                 app_version = mod_patches.game_app_version(game_dir)
-                found = mod_patches.external_patches(mods_dir, app_version, TITLE_IDS)
+                found = mod_patches.external_patches(
+                    mods_dir, app_version, TITLE_IDS, builtin_files=BUILTIN_MODS)
                 selected = mod_patches.external_selection(found, mods_config)
-                writes = mod_patches.compile_external(selected, segments)
+                writes = mod_patches.compile_external(selected, segments, eboot=eboot)
             except (OSError, ValueError, struct.error) as error:
                 lines.append(f'Mods: {error}: not applied')
                 writes = []
