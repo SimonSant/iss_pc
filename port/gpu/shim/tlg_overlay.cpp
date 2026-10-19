@@ -385,6 +385,39 @@ void ImageTab() {
         ImGui::EndDisabled();
         ImGui::EndTable();
     }
+    // tlg (iss): the temporal upscalers, calibrated for this game (launcher: Graphics > FSR).
+    ImGui::SeparatorText(TL("Temporal upscaler (FSR)", "Upscaler temporal (FSR)"));
+    if (BeginRows("##temporal")) {
+        // The launcher sets the game-motion hooks at start only when an upscaler was chosen.
+        const char* hooks = std::getenv("TLG_GAME_MOTION_PS");
+        const bool live = hooks && hooks[0];
+        static const char* const upscalers[] = {TL("Off", "Desligado"), "FSR 3.1 (OptiScaler)", "FSR 4"};
+        ChoiceRow("FSR", s.upscaler, upscalers, nullptr, 3,
+                  live ? TL("FSR 3.1 goes through amd_fidelityfx_vk.dll when it is beside the game, so "
+                            "OptiScaler (Insert) can turn it into FSR 4. FSR 4 is the port's own.",
+                            "O FSR 3.1 passa pelo amd_fidelityfx_vk.dll quando ele está junto do jogo, e o "
+                            "OptiScaler (Insert) pode trocá-lo por FSR 4. O FSR 4 é o do próprio port.")
+                       : TL("Applies when the game restarts (it started with FSR off).",
+                            "Vale ao reiniciar o jogo (ele abriu com o FSR desligado)."));
+        static const char* const presets[] = {
+            TL("Native (anti-aliasing)", "Nativo (antisserrilhado)"), TL("Quality", "Qualidade"),
+            TL("Balanced", "Equilibrado"), TL("Performance", "Desempenho"),
+            TL("Ultra performance", "Ultra desempenho")};
+        ImGui::BeginDisabled(s.upscaler == TlgSettings::UpscalerOff);
+        ChoiceRow(TL("Quality mode", "Modo de qualidade"), s.preset, presets, nullptr,
+                  TlgSettings::PresetCount,
+                  TL("Scene resolution before FSR: native, then 67%, 59%, 50% and 33%. Lower is faster.",
+                     "Resolução da cena antes do FSR: nativa, depois 67%, 59%, 50% e 33%. Menor é mais rápido."));
+        CheckRow(TL("FSR sharpening", "Nitidez do FSR"), s.sharpen,
+                 TL("FSR's own sharpening (RCAS) on the upscaled image.",
+                    "A nitidez do próprio FSR (RCAS) na imagem ampliada."));
+        ImGui::BeginDisabled(!s.sharpen);
+        FloatRow(TL("FSR sharpness", "Intensidade da nitidez do FSR"), s.sharpness, 0.0f, 1.0f, "%.2f",
+                 TL("0 soft, 1 sharpest.", "0 suave, 1 mais nítido."));
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        ImGui::EndTable();
+    }
     ImGui::SeparatorText(TL("Draw distance and detail", "Distância de visão e detalhe"));
     if (BeginRows("##view")) {
         ImGui::BeginDisabled(!s.view_supported);

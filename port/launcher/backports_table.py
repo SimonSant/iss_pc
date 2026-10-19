@@ -69,6 +69,25 @@ MENU = [
            'Deixa a imagem final mais nítida. Precisa do FSR 1 quando a imagem do jogo é menor que a janela.')),
     _menu('Image', 'rcas_strength', 'int', '60', ('Sharpening strength', 'Intensidade da nitidez'),
           ('How strong the sharpening is.', 'Quão forte é a nitidez.'), lo=0, hi=100, unit='%'),
+    # The temporal upscalers (F1 menu: Image > Temporal upscaler). infamous_run turns their game hooks
+    # on at start when one is chosen; inside the game they then switch live.
+    _menu('Upscaler', 'upscaler', 'choice', 'off', ('FSR (temporal upscaler)', 'FSR (upscaler temporal)'),
+          ('FSR 3.1 goes through amd_fidelityfx_vk.dll when it is beside the game, so OptiScaler (Insert in the '
+           'game) can turn it into FSR 4. FSR 4 is the port\'s own.',
+           'O FSR 3.1 passa pelo amd_fidelityfx_vk.dll quando ele está junto do jogo, e o OptiScaler (Insert no '
+           'jogo) pode trocá-lo por FSR 4. O FSR 4 é o do próprio port.'),
+          choices=(('off', 'Off', 'Desligado'), ('fsr3', 'FSR 3.1 (OptiScaler)', 'FSR 3.1 (OptiScaler)'),
+                   ('fsr4', 'FSR 4', 'FSR 4'))),
+    _menu('Upscaler', 'preset', 'choice', '0', ('FSR quality mode', 'Modo de qualidade do FSR'),
+          ('Scene resolution before FSR: native, then 67%, 59%, 50% and 33%. Lower is faster.',
+           'Resolução da cena antes do FSR: nativa, depois 67%, 59%, 50% e 33%. Menor é mais rápido.'),
+          choices=(('0', 'Native (anti-aliasing)', 'Nativo (antisserrilhado)'), ('1', 'Quality', 'Qualidade'),
+                   ('2', 'Balanced', 'Equilibrado'), ('3', 'Performance', 'Desempenho'),
+                   ('4', 'Ultra performance', 'Ultra desempenho'))),
+    _menu('Upscaler', 'sharpen', 'bool', '1', ('FSR sharpening', 'Nitidez do FSR'),
+          ("FSR's own sharpening (RCAS) on the upscaled image.", 'A nitidez do próprio FSR (RCAS) na imagem ampliada.')),
+    _menu('Upscaler', 'sharpness', 'float', '0.3', ('FSR sharpness', 'Intensidade da nitidez do FSR'),
+          ('0 soft, 1 sharpest.', '0 suave, 1 mais nítido.'), lo=0.0, hi=1.0),
     # Draw distance (gpu/shim/tlg_view.h): the in-game menu's sliders; the same ranges.
     _menu('View', 'lod_scale', 'float', '1', ('LOD distance', 'Distância do LOD'),
           ('How far objects keep their detailed models (every LOD band). Above 1x costs CPU and GPU; '
@@ -315,7 +334,7 @@ def normalize(item, value):
 
 
 # Slider steps of the 'float' items (launchers).
-FLOAT_STEPS = {'lod_scale': 0.05, 'region_lod': 0.05, 'region_fade': 0.05, 'near_clip': 0.5,
+FLOAT_STEPS = {'sharpness': 0.05, 'lod_scale': 0.05, 'region_lod': 0.05, 'region_fade': 0.05, 'near_clip': 0.5,
                'far_clip': 1000.0, 'mip_lod_bias': 0.125}
 
 

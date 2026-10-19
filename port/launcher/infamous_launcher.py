@@ -46,6 +46,7 @@ TEXT = {
     'Fullscreen': ('Fullscreen', 'Tela cheia'),
     'vsync': ('VSync', 'VSync'),
     'show_fps': ('Show FPS overlay at start (F10 toggles)', 'Mostrar overlay de FPS ao iniciar (F10 alterna)'),
+    'neo_mode': ('PS4 Pro mode, 4K (needs the Pro 4K patch in Mods)', 'Modo PS4 Pro, 4K (precisa do patch Pro 4K em Mods)'),
     'eager_readback': ('Read GPU results ahead (faster)', 'Ler resultados da GPU antecipado (mais rápido)'),
     'write_merge': ('Write to GPU memory without waiting (faster)', 'Escrever na memória da GPU sem esperar (mais rápido)'),
     'vram': ('Texture cache budget (MB of VRAM)', 'Orçamento do cache de texturas (MB de VRAM)'),
@@ -302,6 +303,7 @@ class Launcher:
         self.check(video, 7, 'write_merge')
         self.check(video, 8, 'precompile_shaders')
         self.check(video, 9, 'close_on_play')
+        self.check(video, 10, 'neo_mode')
         ttk.Label(video, text=self.t('vram'), wraplength=220).grid(row=3, column=0, sticky='w', pady=(6, 0))
         vram = tk.IntVar(value=int(self.settings['vram_budget_mb']))
         self.vars['vram_budget_mb'] = vram

@@ -155,6 +155,7 @@ DEFAULT_SETTINGS = {
     'precompile_shaders': True,  # launcher: make the shader jobs list before the game starts (precompile.py)
     'close_on_play': True,  # launcher: close about 2 s after the game starts (an open launcher cost ~30% FPS in CPU-bound scenes)
     'gpu_readbacks': '2',    # 2 precise: GPU particles (smoke to drain) need it; 0 fast skips them
+    'neo_mode': False,       # PS4 Pro mode (ISS_NEO_MODE): the game renders 4K with a Pro 4K patch in mods
 }
 
 
@@ -607,10 +608,32 @@ def apply_upscaler_environment(env):
         del env['ISS_UPSCALER']
 
 
+def apply_fsr_choice(env, settings):
+    """The launcher's / F1 menu's FSR choice (tlg.ini upscaler=) and PS4 Pro mode: turns the upscaler's
+    game hooks on when FSR is chosen. ISS_UPSCALER / ISS_NEO_MODE set outside the launcher win."""
+    neo = bool(settings.get('neo_mode')) and 'ISS_NEO_MODE' not in os.environ
+    if neo:
+        env['ISS_NEO_MODE'] = '1'
+    if 'ISS_UPSCALER' in os.environ:
+        return
+    path = user_dir() / 'tlg.ini'
+    ini = read_ini(path)
+    if ini.get('upscaler', 'off') in ('', 'off'):
+        return
+    env['ISS_UPSCALER'] = '1'
+    # Pro mode draws the scene at 4K: FSR's output is 4K and the quality modes reduce from it.
+    output = '3840x2160' if neo else '1920x1080'
+    if neo:
+        env.setdefault('TLG_NATIVE_OUTPUT', '1')
+    if ini.get('output_res') != output:
+        update_ini(path, {'output_res': output})
+
+
 def build_env(settings, extra=None):
     env = dict(os.environ)
     for key, value in DEFAULT_ENV.items():
         env.setdefault(key, value)  # explicit ISS_* in the environment always win
+    apply_fsr_choice(env, settings)
     apply_upscaler_environment(env)
     env['ISS_GC_BUDGET_MB'] = os.environ.get('ISS_GC_BUDGET_MB', str(int(settings['vram_budget_mb'])))
     env['ISS_READBACKS'] = os.environ.get('ISS_READBACKS', str(settings.get('gpu_readbacks', '2')))
