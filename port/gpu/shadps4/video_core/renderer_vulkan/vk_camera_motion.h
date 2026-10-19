@@ -61,6 +61,9 @@ public:
         return game_motion_mode;
     }
     [[nodiscard]] bool IsGameMotionShader(u64 ps_hash) const noexcept;
+    [[nodiscard]] bool GameMotionReady() const noexcept {
+        return bool(game_motion_id);
+    }
     void OnGameMotion(VideoCore::ImageId target) noexcept {
         game_motion_id = target;
     }

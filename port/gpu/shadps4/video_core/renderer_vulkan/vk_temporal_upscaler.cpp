@@ -385,8 +385,29 @@ void TemporalUpscaler::OnPixelShader(u64 ps_hash) {
     }
     done_this_frame = true;
     if (!scene_color || !camera_motion.Ready() || !Active()) {
+        // iss: why the upscale was skipped (the first times, then about every 10 s).
+        if (Active() && (skipped_frames < 5 || skipped_frames % 600 == 0)) {
+            std::printf("Upscaler: skipped before ps %016llx: scene color %s, depth %s, "
+                        "game motion %s\n",
+                        static_cast<unsigned long long>(ps_hash), scene_color ? "yes" : "no",
+                        camera_motion.Depth() ? "yes" : "no",
+                        camera_motion.GameMotionReady() ? "yes" : "no");
+        }
+        ++skipped_frames;
         reset = true;
         return;
+    }
+    if (!ran_once) {
+        auto& color = texture_cache.GetImage(scene_color);
+        auto& depth = texture_cache.GetImage(camera_motion.Depth());
+        std::printf("Upscaler: first run before ps %016llx: color %ux%u %s storage %s, "
+                    "depth %ux%u %s\n",
+                    static_cast<unsigned long long>(ps_hash), color.info.size.width,
+                    color.info.size.height, vk::to_string(color.info.pixel_format).c_str(),
+                    (color.usage_flags & vk::ImageUsageFlagBits::eStorage) ? "yes" : "no",
+                    depth.info.size.width, depth.info.size.height,
+                    vk::to_string(depth.info.pixel_format).c_str());
+        ran_once = true;
     }
     Run();
 }

@@ -200,6 +200,8 @@ private:
     bool failed = false;
     u64 trigger_hash = 0x9a9cf8a9;
     std::vector<u64> trigger_ps;
+    u32 skipped_frames = 0; // iss: diagnostics of OnPixelShader
+    bool ran_once = false;
     VideoCore::ImageId scene_color{};
     bool done_this_frame = false;
     u32 preset_file_frames = 0; ///< TLG_PRESET_FILE polling

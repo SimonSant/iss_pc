@@ -290,6 +290,13 @@ void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
     if (upscaler->Enabled() && cb_descs[0].first) {
         upscaler->OnColorTarget(cb_descs[0].first);
     }
+    // iss: the game's own motion vector target (this draw's color target, now bound).
+    if (camera_motion->GameMotionMode() && cb_descs[0].first) {
+        if (const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+            ps && camera_motion->IsGameMotionShader(ps->pgm_hash)) {
+            camera_motion->OnGameMotion(cb_descs[0].first);
+        }
+    }
     // tlg: scene color: a full-size RGBA16F target drawn with the scene depth.
     if (upscaler->Enabled() && db_desc.first && db_desc.first == camera_motion->Depth() &&
         cb_descs[0].first && std::popcount(key.mrt_mask) <= 2) {
@@ -1089,12 +1096,9 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         scene_debug_frame = scene_debug && std::remove(scene_debug) == 0;
         scene_targets->debug = scene_debug_frame;
     }
-    // iss: the game's own motion vector target, and the post pass the upscale goes before.
+    // iss: the post pass the upscale goes before (before its targets are bound).
     if (upscaler->Enabled()) {
         if (const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)]) {
-            if (cb_descs[0].first && camera_motion->IsGameMotionShader(ps->pgm_hash)) {
-                camera_motion->OnGameMotion(cb_descs[0].first);
-            }
             upscaler->OnPixelShader(ps->pgm_hash);
         }
     }
