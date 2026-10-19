@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """The QObject behind the Graphics screen. Reads and writes exactly what the Tk launcher and the
-in-game Insert menu use: settings.json (display mode, VSync, FPS overlay, GPU accuracy, readback
+in-game F1 menu use: settings.json (display mode, VSync, FPS overlay, GPU accuracy, readback
 switches, VRAM budget) and tlg.ini through the same table and the same save path as the Fixes
 screen (Backend.setFix -> infamous_run.save_experimental). It adds no key of its own."""
 import threading
@@ -12,7 +12,7 @@ from .logic import backports_table, shader_cache, tlg_run
 from .rowsmodel import RowsModel
 import preset_share  # noqa: E402  (launcher/preset_share.py; logic put the folder on sys.path)
 
-# (id, kind, live) of the options kept in settings.json. live: also in the Insert menu.
+# (id, kind, live) of the options kept in settings.json. live: also in the F1 menu.
 SETTING_ROWS = {
     's:display_mode': ('display_mode', 'combo', True),
     's:vsync': ('vsync', 'switch', True),

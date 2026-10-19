@@ -2,7 +2,7 @@
 """Graphics screen logic that does not need Qt: presets, the VRAM budget rule and VRAM detection.
 
 Presets only set switches that already exist (the launcher's Video box and the table in
-backports_table.py, which are also the options of the in-game Insert menu); none adds a key.
+backports_table.py, which are also the options of the in-game F1 menu); none adds a key.
 """
 import glob
 import os

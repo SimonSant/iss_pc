@@ -688,7 +688,7 @@ void Menu() {
         const std::string_view title = Common::ElfInfo::Instance().Title();
         const char* app_name = std::getenv("TLG_APP_NAME");
         return std::string(!title.empty() ? title : app_name && *app_name ? app_name : "The Last Guardian") +
-               PadText("  (Insert / R3+L2)", "  (Insert / RS+LT)", "  (Insert / RS+ZL)");
+               PadText("  (F1 / R3+L2)", "  (F1 / RS+LT)", "  (F1 / RS+ZL)");
     }();
     if (!ImGui::Begin(heading.c_str(), &keep_open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
@@ -1328,8 +1328,8 @@ void GuideBox() {
     std::snprintf(steps[3], sizeof(steps[3]), pt ? "Toque em %s de novo para voltar a andar." : "Tap %s again to walk again.", sticks);
     const char* keys = TL("Keyboard: hold T or G (can sideways), Y shakes, F sprays, the arrow keys aim.",
                           "Teclado: segure T ou G (lata de lado), Y sacode, F pinta, as setas miram.");
-    const char* again = TL("The Insert menu, Controls tab, shows this again.",
-                           "O menu Insert, aba Controle, mostra isto de novo.");
+    const char* again = TL("The F1 menu, Controls tab, shows this again.",
+                           "O menu F1, aba Controle, mostra isto de novo.");
     const float w = 640, pad = 30, inner = w - pad * 2, text_x = pad + 40;
     ImFont* font = ImGui::GetFont();
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1601,7 +1601,7 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
     }
     overlay_instance = &instance;
     initialized = true;
-    std::printf("Overlay: menu ready (Insert or R3+L2)\n");
+    std::printf("Overlay: menu ready (F1 or R3+L2)\n");
 }
 
 void UpdateTextInput(SDL_Window* window) {
@@ -1815,8 +1815,9 @@ bool HandleEvent(const SDL_Event& event) {
             return true;
         }
         if (down && !event.key.repeat &&
-            (event.key.key == SDLK_INSERT || (is_open && event.key.key == SDLK_ESCAPE))) {
-            SetOpen(event.key.key == SDLK_INSERT ? !is_open : false);
+            (event.key.key == SDLK_F1 || (is_open && event.key.key == SDLK_ESCAPE))) {
+            // iss: F1, not Insert: Insert opens OptiScaler's overlay.
+            SetOpen(event.key.key == SDLK_F1 ? !is_open : false);
             return true;
         }
         if (!is_open) {

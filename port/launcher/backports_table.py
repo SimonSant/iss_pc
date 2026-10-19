@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Every switch the launcher's "Experimental fixes" window offers, in three groups:
-  MENU         the options of the in-game menu (Insert) that the launcher has no control for yet;
+  MENU         the options of the in-game menu (F1) that the launcher has no control for yet;
   BACKPORTS    the experimental fixes BP01-BP12 (gpu/shadps4/common/backports.h);
   DIAGNOSTICS  the older environment-only A/B switches.
 
@@ -56,7 +56,7 @@ def _menu(tab, key, vtype, default, name, what, **kw):
 
 
 
-# The in-game menu (Insert). Display mode, VSync and the FPS overlay's on/off switch are in the
+# The in-game menu (F1). Display mode, VSync and the FPS overlay's on/off switch are in the
 # launcher's own Video box and not repeated here. Every menu option takes effect on the next frame.
 _CORNERS = (('0', 'Top left', 'Superior esquerdo'), ('1', 'Top right', 'Superior direito'),
             ('2', 'Bottom left', 'Inferior esquerdo'), ('3', 'Bottom right', 'Inferior direito'))

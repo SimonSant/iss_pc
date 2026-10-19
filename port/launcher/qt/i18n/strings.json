@@ -12,7 +12,7 @@
   "footer_credit": {"en": "by HayatoG", "pt": "por HayatoG"},
   "footer_license": {"en": "Open source · GPL-2.0", "pt": "Código aberto · GPL-2.0"},
   "gfx_title": {"en": "Graphics", "pt": "Gráficos"},
-  "gfx_intro": {"en": "Video and performance options in one place. They are the same ones as the Insert menu in the game. “in game” ones change while you play; “restarts the game” ones apply the next time it starts.", "pt": "Opções de vídeo e desempenho num lugar só. São as mesmas do menu Insert do jogo. As marcadas “no jogo” mudam enquanto você joga; as de “reinicia o jogo” valem na próxima partida."},
+  "gfx_intro": {"en": "Video and performance options in one place. They are the same ones as the F1 menu in the game. “in game” ones change while you play; “restarts the game” ones apply the next time it starts.", "pt": "Opções de vídeo e desempenho num lugar só. São as mesmas do menu F1 do jogo. As marcadas “no jogo” mudam enquanto você joga; as de “reinicia o jogo” valem na próxima partida."},
   "gfx_presets_title": {"en": "Presets", "pt": "Predefinições"},
   "gfx_preset_performance": {"en": "Performance", "pt": "Desempenho"},
   "gfx_preset_balanced": {"en": "Balanced", "pt": "Equilibrado"},
@@ -290,8 +290,8 @@
   "upd_checked_on": {"en": "Checked on {date}", "pt": "Verificado em {date}"},
   "fixes_title": {"en": "Experimental fixes", "pt": "Correções experimentais"},
   "fixes_intro": {
-    "en": "Everything here is saved in tlg.ini and applies the next time the game starts. Items tagged \"in game\" can also be changed while playing, in the Insert menu. If you touch nothing, the Recommended profile is used.",
-    "pt": "Tudo aqui é salvo no tlg.ini e vale na próxima vez que o jogo abrir. Os itens com a etiqueta \"no jogo\" também podem ser mudados durante a partida, no menu Insert. Se você não mexer em nada, vale o perfil Recomendado."},
+    "en": "Everything here is saved in tlg.ini and applies the next time the game starts. Items tagged \"in game\" can also be changed while playing, in the F1 menu. If you touch nothing, the Recommended profile is used.",
+    "pt": "Tudo aqui é salvo no tlg.ini e vale na próxima vez que o jogo abrir. Os itens com a etiqueta \"no jogo\" também podem ser mudados durante a partida, no menu F1. Se você não mexer em nada, vale o perfil Recomendado."},
   "fixes_recompile": {
     "en": "Switches marked with the shader warning make the next game recompile the shaders (it may flicker or look green for a while).",
     "pt": "Chaves com o aviso de shaders fazem a próxima partida recompilar os shaders (pode piscar ou ficar verde por um tempo)."},

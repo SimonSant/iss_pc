@@ -590,7 +590,7 @@ UPSCALER_NAMES = ('fsr3', 'fsr4', 'fsr411', 'taa', 'dlss')
 
 
 def apply_upscaler_environment(env):
-    """ISS_UPSCALER=1 (or on) enables the calibrated upscalers and lets tlg.ini / the Insert menu
+    """ISS_UPSCALER=1 (or on) enables the calibrated upscalers and lets tlg.ini / the F1 menu
     pick one; ISS_UPSCALER=fsr3 (fsr4, ...) also forces that one; off (default) leaves them off.
     Changes env in place; an explicit TLG_ variable in it always wins."""
     choice = env.get('ISS_UPSCALER', 'off').strip().lower()

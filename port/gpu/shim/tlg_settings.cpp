@@ -335,7 +335,7 @@ void Save() {
         return;
     }
     std::fprintf(file,
-                 "# tlg settings (in-game menu: Insert / R3+L2)\n"
+                 "# tlg settings (in-game menu: F1 / R3+L2)\n"
                  "upscaler=%s\npreset=%d\nsharpen=%d\nsharpness=%.2f\njitter=%d\n"
                  "reactive=%d\nobject_motion=%d\nreactive_scale=%.2f\nreactive_threshold=%.2f\nreactive_max=%.2f\n"
                  "debug_view=%d\nshow_fps=%d\nfsr4_auto_exposure=%d\nfsr4_invert_jitter=%d\n",
