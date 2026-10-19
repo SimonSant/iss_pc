@@ -266,21 +266,32 @@ bool FrameGen::CreateSwapchain(const Instance& instance, vk::SurfaceKHR surface,
     std::scoped_lock lock{impl->mutex};
     auto& d = *impl;
     const auto physical = instance.GetPhysicalDevice();
-    // Queues of their own: present (transfer + present) and image acquire (anything).
+    // Three queues of their own, all different (the swapchain refuses shared ones): async compute
+    // (compute), present (present support) and image acquire (anything).
     const auto& extra = instance.GetExtraQueues();
+    const auto families = physical.getQueueFamilyProperties();
+    const Instance::ExtraQueue* async = nullptr;
     const Instance::ExtraQueue* present = nullptr;
     const Instance::ExtraQueue* acquire = nullptr;
     for (const auto& q : extra) {
+        if (!async && (families[q.family].queueFlags & vk::QueueFlagBits::eCompute)) {
+            async = &q;
+        }
+    }
+    for (const auto& q : extra) {
+        if (&q == async) continue;
         const auto [result, supported] = physical.getSurfaceSupportKHR(q.family, surface);
         if (!present && result == vk::Result::eSuccess && supported) {
             present = &q;
-        } else if (!acquire) {
-            acquire = &q;
         }
     }
-    if (!present || !acquire) {
-        std::printf("Frame generation: no spare present/acquire queues (%zu extra); off\n",
-                    extra.size());
+    for (const auto& q : extra) {
+        if (&q != async && &q != present && !acquire) acquire = &q;
+    }
+    if (!async || !present || !acquire) {
+        std::printf("Frame generation: needs 3 spare queues (compute, present, any); have %zu "
+                    "(compute %d, present %d, acquire %d); off\n",
+                    extra.size(), async != nullptr, present != nullptr, acquire != nullptr);
         return false;
     }
     ffxCreateContextDescFrameGenerationSwapChainVK desc{};
@@ -292,7 +303,7 @@ bool FrameGen::CreateSwapchain(const Instance& instance, vk::SurfaceKHR surface,
     desc.createInfo = VkSwapchainCreateInfoKHR(info);
     desc.gameQueue = {VkQueue(instance.GetGraphicsQueue()), instance.GetGraphicsQueueFamilyIndex(),
                       nullptr};
-    desc.asyncComputeQueue = {VkQueue(present->queue), present->family, nullptr};
+    desc.asyncComputeQueue = {VkQueue(async->queue), async->family, nullptr};
     desc.presentQueue = {VkQueue(present->queue), present->family, nullptr};
     desc.imageAcquireQueue = {VkQueue(acquire->queue), acquire->family, nullptr};
     ffxReturnCode_t result = d.api->create(&d.swapchain_context, &desc.header, nullptr);
@@ -329,8 +340,9 @@ bool FrameGen::CreateSwapchain(const Instance& instance, vk::SurfaceKHR surface,
     d.frame_id = 0;
     d.prepared = false;
     *swapchain = vk::SwapchainKHR(d.swapchain);
-    std::printf("Frame generation: on, %ux%u (present queue family %u, acquire family %u)\n",
-                info.imageExtent.width, info.imageExtent.height, present->family, acquire->family);
+    std::printf("Frame generation: on, %ux%u (queue families: async %u, present %u, acquire %u)\n",
+                info.imageExtent.width, info.imageExtent.height, async->family, present->family,
+                acquire->family);
     return true;
 }
 
