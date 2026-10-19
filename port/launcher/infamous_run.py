@@ -41,9 +41,13 @@ def user_dir():
     return userdata.user_dir(PORT_DIR)
 
 
-def mods_dir():
+def mods_dir(settings=None):
     """ISS_MODS_DIR, else user_dir()/mods (created empty on first use so the player sees where
-    to drop shadPS4/GoldHEN cheat XML files). Not cached: user_dir() can change while running."""
+    to drop shadPS4/GoldHEN cheat XML files). Not cached: user_dir() can change while running.
+    In PS4 Pro mode, user_dir()/mods-pro when it exists: patches made for the Pro mode (4K)."""
+    pro = user_dir() / 'mods-pro'
+    if not os.environ.get('ISS_MODS_DIR') and settings and settings.get('neo_mode') and pro.is_dir():
+        return pro
     directory = Path(os.environ.get('ISS_MODS_DIR') or user_dir() / 'mods')
     directory.mkdir(parents=True, exist_ok=True)
     return directory
@@ -412,7 +416,7 @@ def prepare(settings, log=print):
         [*python_command(scripts / 'link_modules.py'), game, '--out', str(OUT_DIR), '--modules', *modules],
         [*python_command(scripts / 'content_profile.py'), game, '--out', str(OUT_DIR)],
         [*python_command(scripts / 'infamous_patches.py'), game, '--out', str(OUT_DIR),
-         '--mods-dir', str(mods_dir()), '--mods-config', str(mods_config())],
+         '--mods-dir', str(mods_dir(settings)), '--mods-config', str(mods_config())],
     ]
     for step in steps:
         result = subprocess.run(step, cwd=str(scripts), capture_output=True, text=True,

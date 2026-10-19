@@ -46,7 +46,7 @@ TEXT = {
     'Fullscreen': ('Fullscreen', 'Tela cheia'),
     'vsync': ('VSync', 'VSync'),
     'show_fps': ('Show FPS overlay at start (F10 toggles)', 'Mostrar overlay de FPS ao iniciar (F10 alterna)'),
-    'neo_mode': ('PS4 Pro mode, 4K (needs the Pro 4K patch in Mods)', 'Modo PS4 Pro, 4K (precisa do patch Pro 4K em Mods)'),
+    'neo_mode': ('PS4 Pro mode, 4K (Pro 4K patch in the mods-pro folder)', 'Modo PS4 Pro, 4K (patch Pro 4K na pasta mods-pro)'),
     'eager_readback': ('Read GPU results ahead (faster)', 'Ler resultados da GPU antecipado (mais rápido)'),
     'write_merge': ('Write to GPU memory without waiting (faster)', 'Escrever na memória da GPU sem esperar (mais rápido)'),
     'vram': ('Texture cache budget (MB of VRAM)', 'Orçamento do cache de texturas (MB de VRAM)'),
