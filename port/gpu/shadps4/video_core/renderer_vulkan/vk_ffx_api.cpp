@@ -1,12 +1,16 @@
 // SPDX-FileCopyrightText: Copyright 2026 tlg contributors
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <mutex>
 #include <string>
+#include <vector>
 
 #include "video_core/renderer_vulkan/vk_ffx_api.h"
+#include "video_core/renderer_vulkan/vk_instance.h"
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -15,6 +19,7 @@
 #include <windows.h>
 #include "../../../third_party/ffx-api/ffx_api/ffx_api.h"
 #include "../../../third_party/ffx-api/ffx_api/ffx_upscale.h"
+#include "../../../third_party/ffx-api/ffx_api/ffx_framegeneration.h"
 #include "../../../third_party/ffx-api/ffx_api/vk/ffx_api_vk.h"
 #endif
 
@@ -58,6 +63,8 @@ struct FfxApi::Impl {
     PfnFfxCreateContext create = nullptr;
     PfnFfxDestroyContext destroy = nullptr;
     PfnFfxDispatch dispatch = nullptr;
+    PfnFfxConfigure configure = nullptr;
+    PfnFfxQuery query = nullptr;
     ffxContext context = nullptr;
     ContextDesc desc{};
     // Kept alive for the context's lifetime, as the API asks.
@@ -98,6 +105,9 @@ FfxApi* FfxApi::Get() {
             reinterpret_cast<PfnFfxDestroyContext>(GetProcAddress(module, "ffxDestroyContext"));
         api->impl->dispatch =
             reinterpret_cast<PfnFfxDispatch>(GetProcAddress(module, "ffxDispatch"));
+        api->impl->configure =
+            reinterpret_cast<PfnFfxConfigure>(GetProcAddress(module, "ffxConfigure"));
+        api->impl->query = reinterpret_cast<PfnFfxQuery>(GetProcAddress(module, "ffxQuery"));
         if (!api->impl->create || !api->impl->destroy || !api->impl->dispatch) {
             std::printf("FFX API: %ls has no ffxCreateContext/ffxDispatch\n", DllName);
             return nullptr;
@@ -184,6 +194,224 @@ void FfxApi::ReleaseContext() {
     impl->context = nullptr;
 }
 
+// -- Frame generation ------------------------------------------------------------------------------
+
+struct FrameGen::Impl {
+    FfxApi::Impl* api = nullptr;
+    std::mutex mutex;
+    ffxContext swapchain_context = nullptr;
+    ffxContext context = nullptr;
+    VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    ffxQueryDescSwapchainReplacementFunctionsVK functions{};
+    vk::Format format{};
+    vk::Extent2D extent{};
+    uint64_t frame_id = 0;
+    bool prepared = false; ///< a Prepare since the last present
+    ffxCreateBackendVKDesc backend{};
+    ffxCreateContextDescFrameGeneration create{};
+
+    void Configure(bool enabled) {
+        ffxConfigureDescFrameGeneration config{};
+        config.header.type = FFX_API_CONFIGURE_DESC_TYPE_FRAMEGENERATION;
+        config.swapChain = swapchain;
+        config.frameGenerationCallback = [](ffxDispatchDescFrameGeneration* params,
+                                            void* user) -> ffxReturnCode_t {
+            auto* self = static_cast<Impl*>(user);
+            return self->api->dispatch(&self->context, &params->header);
+        };
+        config.frameGenerationCallbackUserContext = this;
+        config.frameGenerationEnabled = enabled;
+        config.allowAsyncWorkloads = false;
+        config.generationRect = {0, 0, int32_t(extent.width), int32_t(extent.height)};
+        config.frameID = frame_id;
+        const ffxReturnCode_t result = api->configure(&context, &config.header);
+        static bool logged = false;
+        if (result != FFX_API_RETURN_OK && !logged) {
+            std::printf("Frame generation: configure failed (%u)\n", result);
+            logged = true;
+        }
+    }
+};
+
+FrameGen* FrameGen::Get() {
+    static FrameGen* const fg = []() -> FrameGen* {
+        const char* setting = std::getenv("TLG_FRAMEGEN");
+        if (!setting || setting[0] != '1') {
+            return nullptr;
+        }
+        FfxApi* api = FfxApi::Get();
+        if (!api || !api->impl->configure || !api->impl->query) {
+            std::printf("Frame generation: needs amd_fidelityfx_vk.dll beside the game; off\n");
+            return nullptr;
+        }
+        auto* frame_gen = new FrameGen();
+        frame_gen->impl = std::make_unique<Impl>();
+        frame_gen->impl->api = api->impl.get();
+        return frame_gen;
+    }();
+    return fg;
+}
+
+FrameGen::~FrameGen() {
+    DestroySwapchain();
+}
+
+bool FrameGen::Active() const {
+    return impl->swapchain_context != nullptr;
+}
+
+bool FrameGen::CreateSwapchain(const Instance& instance, vk::SurfaceKHR surface,
+                               const vk::SwapchainCreateInfoKHR& info,
+                               vk::SwapchainKHR* swapchain) {
+    std::scoped_lock lock{impl->mutex};
+    auto& d = *impl;
+    const auto physical = instance.GetPhysicalDevice();
+    // Queues of their own: present (transfer + present) and image acquire (anything).
+    const auto& extra = instance.GetExtraQueues();
+    const Instance::ExtraQueue* present = nullptr;
+    const Instance::ExtraQueue* acquire = nullptr;
+    for (const auto& q : extra) {
+        const auto [result, supported] = physical.getSurfaceSupportKHR(q.family, surface);
+        if (!present && result == vk::Result::eSuccess && supported) {
+            present = &q;
+        } else if (!acquire) {
+            acquire = &q;
+        }
+    }
+    if (!present || !acquire) {
+        std::printf("Frame generation: no spare present/acquire queues (%zu extra); off\n",
+                    extra.size());
+        return false;
+    }
+    ffxCreateContextDescFrameGenerationSwapChainVK desc{};
+    desc.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FGSWAPCHAIN_VK;
+    desc.physicalDevice = VkPhysicalDevice(physical);
+    desc.device = VkDevice(instance.GetDevice());
+    d.swapchain = VK_NULL_HANDLE;
+    desc.swapchain = &d.swapchain;
+    desc.createInfo = VkSwapchainCreateInfoKHR(info);
+    desc.gameQueue = {VkQueue(instance.GetGraphicsQueue()), instance.GetGraphicsQueueFamilyIndex(),
+                      nullptr};
+    desc.asyncComputeQueue = {VkQueue(present->queue), present->family, nullptr};
+    desc.presentQueue = {VkQueue(present->queue), present->family, nullptr};
+    desc.imageAcquireQueue = {VkQueue(acquire->queue), acquire->family, nullptr};
+    ffxReturnCode_t result = d.api->create(&d.swapchain_context, &desc.header, nullptr);
+    if (result != FFX_API_RETURN_OK) {
+        std::printf("Frame generation: swapchain creation failed (%u); off\n", result);
+        d.swapchain_context = nullptr;
+        return false;
+    }
+    d.functions = {};
+    d.functions.header.type = FFX_API_QUERY_DESC_TYPE_FGSWAPCHAIN_FUNCTIONS_VK;
+    d.api->query(&d.swapchain_context, &d.functions.header);
+    d.backend = {};
+    d.backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK;
+    d.backend.vkDevice = VkDevice(instance.GetDevice());
+    d.backend.vkPhysicalDevice = VkPhysicalDevice(physical);
+    d.backend.vkDeviceProcAddr = VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr;
+    d.create = {};
+    d.create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_FRAMEGENERATION;
+    d.create.header.pNext = &d.backend.header;
+    d.create.displaySize = {info.imageExtent.width, info.imageExtent.height};
+    d.create.maxRenderSize = {std::max(info.imageExtent.width, 3840u),
+                              std::max(info.imageExtent.height, 2160u)};
+    d.create.backBufferFormat = ffxApiGetSurfaceFormatVK(VkFormat(info.imageFormat));
+    result = d.api->create(&d.context, &d.create.header, nullptr);
+    if (result != FFX_API_RETURN_OK || !d.functions.pOutAcquireNextImageKHR) {
+        std::printf("Frame generation: context creation failed (%u); off\n", result);
+        d.context = nullptr;
+        d.api->destroy(&d.swapchain_context, nullptr);
+        d.swapchain_context = nullptr;
+        return false;
+    }
+    d.format = info.imageFormat;
+    d.extent = info.imageExtent;
+    d.frame_id = 0;
+    d.prepared = false;
+    *swapchain = vk::SwapchainKHR(d.swapchain);
+    std::printf("Frame generation: on, %ux%u (present queue family %u, acquire family %u)\n",
+                info.imageExtent.width, info.imageExtent.height, present->family, acquire->family);
+    return true;
+}
+
+void FrameGen::DestroySwapchain() {
+    std::scoped_lock lock{impl->mutex};
+    auto& d = *impl;
+    if (d.context) {
+        d.api->destroy(&d.context, nullptr);
+        d.context = nullptr;
+    }
+    if (d.swapchain_context) {
+        d.api->destroy(&d.swapchain_context, nullptr); // destroys the swapchain too
+        d.swapchain_context = nullptr;
+    }
+    d.swapchain = VK_NULL_HANDLE;
+}
+
+vk::Result FrameGen::GetImages(vk::Device device, vk::SwapchainKHR swapchain,
+                               std::vector<vk::Image>& images) {
+    u32 count = 0;
+    auto fn = impl->functions.pOutGetSwapchainImagesKHR;
+    VkResult result = fn(VkDevice(device), VkSwapchainKHR(swapchain), &count, nullptr);
+    std::vector<VkImage> raw(count);
+    result = fn(VkDevice(device), VkSwapchainKHR(swapchain), &count, raw.data());
+    images.assign(raw.begin(), raw.begin() + count);
+    return vk::Result(result);
+}
+
+vk::Result FrameGen::Acquire(vk::Device device, vk::SwapchainKHR swapchain, vk::Semaphore semaphore,
+                             u32* index) {
+    return vk::Result(impl->functions.pOutAcquireNextImageKHR(
+        VkDevice(device), VkSwapchainKHR(swapchain), UINT64_MAX, VkSemaphore(semaphore),
+        VK_NULL_HANDLE, index));
+}
+
+vk::Result FrameGen::Present(vk::Queue queue, const vk::PresentInfoKHR& info) {
+    {
+        // A frame the upscaler did not prepare (menus, loading) is presented as it is.
+        std::scoped_lock lock{impl->mutex};
+        if (!impl->prepared && impl->context) {
+            impl->Configure(false);
+        }
+        impl->prepared = false;
+    }
+    const VkPresentInfoKHR raw = info;
+    return vk::Result(impl->functions.pOutQueuePresentKHR(VkQueue(queue), &raw));
+}
+
+void FrameGen::Prepare(vk::CommandBuffer command, const Dlss::Resource& depth,
+                       const Dlss::Resource& motion, float jitter_x, float jitter_y, float frame_ms,
+                       const FfxApi::Camera& camera) {
+    std::scoped_lock lock{impl->mutex};
+    auto& d = *impl;
+    if (!d.context) {
+        return;
+    }
+    ++d.frame_id;
+    d.Configure(true);
+    ffxDispatchDescFrameGenerationPrepare prepare{};
+    prepare.header.type = FFX_API_DISPATCH_DESC_TYPE_FRAMEGENERATION_PREPARE;
+    prepare.frameID = d.frame_id;
+    prepare.commandList = reinterpret_cast<void*>(VkCommandBuffer(command));
+    prepare.renderSize = {depth.width, depth.height};
+    prepare.jitterOffset = {jitter_x, jitter_y};
+    prepare.motionVectorScale = {1.0f, 1.0f};
+    prepare.frameTimeDelta = frame_ms;
+    prepare.cameraNear = camera.near_plane;
+    prepare.cameraFar = camera.far_plane;
+    prepare.cameraFovAngleVertical = camera.vertical_fov;
+    prepare.viewSpaceToMetersFactor = 1.0f;
+    prepare.depth = Describe(depth, FFX_API_RESOURCE_USAGE_DEPTHTARGET);
+    prepare.motionVectors = Describe(motion, FFX_API_RESOURCE_USAGE_READ_ONLY);
+    const ffxReturnCode_t result = d.api->dispatch(&d.context, &prepare.header);
+    static bool logged = false;
+    if (result != FFX_API_RETURN_OK && !logged) {
+        std::printf("Frame generation: prepare failed (%u)\n", result);
+        logged = true;
+    }
+    d.prepared = result == FFX_API_RETURN_OK;
+}
+
 #else
 
 struct FfxApi::Impl {};
@@ -202,6 +430,31 @@ bool FfxApi::Dispatch(vk::CommandBuffer, const Dlss::Frame&, const Camera&) {
     return false;
 }
 void FfxApi::ReleaseContext() {}
+
+struct FrameGen::Impl {};
+FrameGen* FrameGen::Get() {
+    return nullptr;
+}
+FrameGen::~FrameGen() = default;
+bool FrameGen::CreateSwapchain(const Instance&, vk::SurfaceKHR, const vk::SwapchainCreateInfoKHR&,
+                               vk::SwapchainKHR*) {
+    return false;
+}
+void FrameGen::DestroySwapchain() {}
+bool FrameGen::Active() const {
+    return false;
+}
+vk::Result FrameGen::GetImages(vk::Device, vk::SwapchainKHR, std::vector<vk::Image>&) {
+    return vk::Result::eErrorFeatureNotPresent;
+}
+vk::Result FrameGen::Acquire(vk::Device, vk::SwapchainKHR, vk::Semaphore, u32*) {
+    return vk::Result::eErrorFeatureNotPresent;
+}
+vk::Result FrameGen::Present(vk::Queue, const vk::PresentInfoKHR&) {
+    return vk::Result::eErrorFeatureNotPresent;
+}
+void FrameGen::Prepare(vk::CommandBuffer, const Dlss::Resource&, const Dlss::Resource&, float,
+                       float, float, const FfxApi::Camera&) {}
 
 #endif
 

@@ -24,12 +24,13 @@ SETTING_ROWS = {
     's:close_on_play': ('close_on_play', 'switch', True),
     's:vram_budget_mb': ('vram_budget_mb', 'slider', False),
     's:neo_mode': ('neo_mode', 'switch', False),
+    's:frame_gen': ('frame_gen', 'switch', False),
 }
 DISPLAY_MODES = ('Windowed', 'Borderless', 'Fullscreen')
 OVERLAY_IDS = tuple(i.id for i in backports_table.MENU if i.tab == 'Overlay')
 SECTIONS = (
     ('gfx_sec_image', ('s:display_mode', 's:vsync', 'menu:fsr1', 'menu:rcas', 'menu:rcas_strength')),
-    ('gfx_sec_fsr', ('s:neo_mode',) + tuple(i.id for i in backports_table.MENU if i.tab == 'Upscaler')),
+    ('gfx_sec_fsr', ('s:neo_mode', 's:frame_gen') + tuple(i.id for i in backports_table.MENU if i.tab == 'Upscaler')),
     ('gfx_sec_rate', ('menu:fps_limit', 'menu:frames_queued')),
     ('gfx_sec_view', tuple(i.id for i in backports_table.MENU if i.tab == 'View')),
     ('gfx_sec_gpu', ('TLG_ASYNC_SHADERS', 'TLG_BACKGROUND_WARMUP', 's:gpu_readbacks', 's:eager_readback',

@@ -438,5 +438,6 @@
   "adv_profile_default": {"en": "All defaults", "pt": "Tudo no padrão"},
   "adv_profile_custom": {"en": "{n} changed", "pt": "{n} alterado(s)"},
   "gfx_sec_fsr": {"en": "FSR and resolution", "pt": "FSR e resolução"},
-  "gfx_what_neo_mode": {"en": "The game runs as on a PS4 Pro and draws 4K (with the Pro 4K patch enabled in Mods). FSR then works from 4K. Applies on the next start.", "pt": "O jogo roda como num PS4 Pro e desenha em 4K (com o patch Pro 4K na pasta mods-pro). O FSR passa a trabalhar a partir do 4K. Vale no próximo início."}
+  "gfx_what_neo_mode": {"en": "The game runs as on a PS4 Pro and draws 4K (with the Pro 4K patch enabled in Mods). FSR then works from 4K. Applies on the next start.", "pt": "O jogo roda como num PS4 Pro e desenha em 4K (com o patch Pro 4K na pasta mods-pro). O FSR passa a trabalhar a partir do 4K. Vale no próximo início."},
+  "gfx_what_frame_gen": {"en": "FSR 3.1 frame generation: one generated frame between every two, from the game's motion vectors. Needs FSR 3.1 (OptiScaler) selected and amd_fidelityfx_vk.dll beside the game. Applies on the next start.", "pt": "Geração de quadros do FSR 3.1: um quadro gerado entre cada dois, a partir dos vetores de movimento do jogo. Precisa do FSR 3.1 (OptiScaler) escolhido e do amd_fidelityfx_vk.dll junto do jogo. Vale no próximo início."}
 }

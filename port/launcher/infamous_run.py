@@ -207,6 +207,7 @@ DEFAULT_SETTINGS = {
     'close_on_play': True,  # launcher: close about 2 s after the game starts (an open launcher cost ~30% FPS in CPU-bound scenes)
     'gpu_readbacks': '2',    # 2 precise: GPU particles (smoke to drain) need it; 0 fast skips them
     'neo_mode': False,       # PS4 Pro mode (ISS_NEO_MODE): the game renders 4K with a Pro 4K patch in mods
+    'frame_gen': False,      # FSR 3.1 frame generation (TLG_FRAMEGEN; amd_fidelityfx_vk.dll, FSR 3.1 upscaler)
 }
 
 
@@ -663,6 +664,8 @@ def apply_fsr_choice(env, settings):
     """The launcher's / F1 menu's FSR choice (tlg.ini upscaler=) and PS4 Pro mode: turns the upscaler's
     game hooks on when FSR is chosen. ISS_UPSCALER / ISS_NEO_MODE set outside the launcher win."""
     neo = bool(settings.get('neo_mode')) and 'ISS_NEO_MODE' not in os.environ
+    if settings.get('frame_gen') and 'TLG_FRAMEGEN' not in os.environ:
+        env['TLG_FRAMEGEN'] = '1'
     if neo:
         env['ISS_NEO_MODE'] = '1'
     if 'ISS_UPSCALER' in os.environ:

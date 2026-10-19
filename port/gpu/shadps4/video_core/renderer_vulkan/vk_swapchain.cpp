@@ -10,6 +10,7 @@
 #include "tlg_settings.h"
 #include "imgui/renderer/imgui_core.h"
 #include "sdl_window.h"
+#include "video_core/renderer_vulkan/vk_ffx_api.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
 
@@ -72,10 +73,14 @@ void Swapchain::Create(u32 width_, u32 height_) {
         .oldSwapchain = nullptr,
     };
 
-    auto [swapchain_result, chain] = instance.GetDevice().createSwapchainKHR(swapchain_info);
-    ASSERT_MSG(swapchain_result == vk::Result::eSuccess, "Failed to create swapchain: {}",
-               vk::to_string(swapchain_result));
-    swapchain = chain;
+    // iss: FSR 3.1 frame generation replaces the swapchain when it is on (TLG_FRAMEGEN=1).
+    FrameGen* frame_gen = FrameGen::Get();
+    if (!frame_gen || !frame_gen->CreateSwapchain(instance, surface, swapchain_info, &swapchain)) {
+        auto [swapchain_result, chain] = instance.GetDevice().createSwapchainKHR(swapchain_info);
+        ASSERT_MSG(swapchain_result == vk::Result::eSuccess, "Failed to create swapchain: {}",
+                   vk::to_string(swapchain_result));
+        swapchain = chain;
+    }
 
     SetupImages();
     RefreshSemaphores();
@@ -106,9 +111,12 @@ void Swapchain::SetHDR(bool hdr) {
 
 bool Swapchain::AcquireNextImage() {
     vk::Device device = instance.GetDevice();
+    FrameGen* frame_gen = FrameGen::Get();
     vk::Result result =
-        device.acquireNextImageKHR(swapchain, std::numeric_limits<u64>::max(),
-                                   image_acquired[frame_index], VK_NULL_HANDLE, &image_index);
+        frame_gen && frame_gen->Active()
+            ? frame_gen->Acquire(device, swapchain, image_acquired[frame_index], &image_index)
+            : device.acquireNextImageKHR(swapchain, std::numeric_limits<u64>::max(),
+                                         image_acquired[frame_index], VK_NULL_HANDLE, &image_index);
 
     switch (result) {
     case vk::Result::eSuccess:
@@ -138,7 +146,10 @@ bool Swapchain::Present() {
         .pImageIndices = &image_index,
     };
 
-    auto result = instance.GetPresentQueue().presentKHR(present_info);
+    FrameGen* frame_gen = FrameGen::Get();
+    auto result = frame_gen && frame_gen->Active()
+                      ? frame_gen->Present(instance.GetPresentQueue(), present_info)
+                      : instance.GetPresentQueue().presentKHR(present_info);
     if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR) {
         needs_recreation = true;
     } else {
@@ -269,9 +280,12 @@ void Swapchain::Destroy() {
     }
     images_view.clear();
 
-    if (swapchain) {
+    if (FrameGen* frame_gen = FrameGen::Get(); frame_gen && frame_gen->Active()) {
+        frame_gen->DestroySwapchain(); // its swapchain goes with it
+    } else if (swapchain) {
         device.destroySwapchainKHR(swapchain);
     }
+    swapchain = nullptr;
 
     for (const auto& sem : image_acquired) {
         device.destroySemaphore(sem);
@@ -311,10 +325,16 @@ void Swapchain::RefreshSemaphores() {
 
 void Swapchain::SetupImages() {
     vk::Device device = instance.GetDevice();
-    auto [images_result, imgs] = device.getSwapchainImagesKHR(swapchain);
-    ASSERT_MSG(images_result == vk::Result::eSuccess, "Failed to create swapchain images: {}",
-               vk::to_string(images_result));
-    images = std::move(imgs);
+    if (FrameGen* frame_gen = FrameGen::Get(); frame_gen && frame_gen->Active()) {
+        const auto images_result = frame_gen->GetImages(device, swapchain, images);
+        ASSERT_MSG(images_result == vk::Result::eSuccess, "Failed to get swapchain images: {}",
+                   vk::to_string(images_result));
+    } else {
+        auto [images_result, imgs] = device.getSwapchainImagesKHR(swapchain);
+        ASSERT_MSG(images_result == vk::Result::eSuccess, "Failed to create swapchain images: {}",
+                   vk::to_string(images_result));
+        images = std::move(imgs);
+    }
     image_count = static_cast<u32>(images.size());
     images_view.resize(image_count);
     for (u32 i = 0; i < image_count; ++i) {

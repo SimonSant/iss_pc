@@ -46,6 +46,7 @@ TEXT = {
     'Fullscreen': ('Fullscreen', 'Tela cheia'),
     'vsync': ('VSync', 'VSync'),
     'show_fps': ('Show FPS overlay at start (F10 toggles)', 'Mostrar overlay de FPS ao iniciar (F10 alterna)'),
+    'frame_gen': ('Frame generation (FSR 3.1, needs FSR 3.1 and amd_fidelityfx_vk.dll)', 'Geração de quadros (FSR 3.1, precisa do FSR 3.1 e do amd_fidelityfx_vk.dll)'),
     'neo_mode': ('PS4 Pro mode, 4K (Pro 4K patch in the mods-pro folder)', 'Modo PS4 Pro, 4K (patch Pro 4K na pasta mods-pro)'),
     'eager_readback': ('Read GPU results ahead (faster)', 'Ler resultados da GPU antecipado (mais rápido)'),
     'write_merge': ('Write to GPU memory without waiting (faster)', 'Escrever na memória da GPU sem esperar (mais rápido)'),
@@ -304,6 +305,7 @@ class Launcher:
         self.check(video, 8, 'precompile_shaders')
         self.check(video, 9, 'close_on_play')
         self.check(video, 10, 'neo_mode')
+        self.check(video, 11, 'frame_gen')
         ttk.Label(video, text=self.t('vram'), wraplength=220).grid(row=3, column=0, sticky='w', pady=(6, 0))
         vram = tk.IntVar(value=int(self.settings['vram_budget_mb']))
         self.vars['vram_budget_mb'] = vram

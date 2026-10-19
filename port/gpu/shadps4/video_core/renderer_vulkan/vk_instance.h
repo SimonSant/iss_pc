@@ -98,6 +98,15 @@ public:
         return present_queue;
     }
 
+    /// iss: queues created for frame generation (TLG_FRAMEGEN=1), with their family.
+    struct ExtraQueue {
+        vk::Queue queue;
+        u32 family;
+    };
+    const std::vector<ExtraQueue>& GetExtraQueues() const {
+        return extra_queues;
+    }
+
     TracyVkCtx GetProfilerContext() const {
         return profiler_context;
     }
@@ -570,6 +579,8 @@ private:
     VmaAllocator allocator{};
     vk::Queue present_queue;
     vk::Queue graphics_queue;
+    std::vector<std::pair<u32, u32>> extra_queue_slots;
+    std::vector<ExtraQueue> extra_queues;
     std::vector<vk::PhysicalDevice> physical_devices;
     std::vector<std::string> available_extensions;
     std::unordered_map<vk::Format, vk::FormatProperties3> format_properties;

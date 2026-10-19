@@ -2143,6 +2143,16 @@ bool TemporalUpscaler::RecordFfx(vk::CommandBuffer cmdbuf, const Dlss::Resource&
                                                 : 0.0f,
                            },
                            {camera_motion.Near(), 3000.0f, camera_motion.VerticalFov()});
+        // iss: frame generation interpolates the presented frames with the same inputs.
+        if (ok) {
+            if (FrameGen* frame_gen = FrameGen::Get(); frame_gen && frame_gen->Active()) {
+                frame_gen->Prepare(cmdbuf, depth,
+                                   {vk::Image(motion_image), *motion_view, vk::Format::eR16G16Sfloat,
+                                    vk::ImageAspectFlagBits::eColor, w, h},
+                                   sign * jitter[0], sign * jitter[1], frame_ms,
+                                   {camera_motion.Near(), 3000.0f, camera_motion.VerticalFov()});
+            }
+        }
     }
     if (!ok) {
         std::printf("Upscaler: FFX API failed; using the built-in FSR 3.1\n");

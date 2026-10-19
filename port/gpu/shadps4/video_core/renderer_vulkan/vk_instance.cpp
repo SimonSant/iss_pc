@@ -537,6 +537,30 @@ bool Instance::CreateDevice() {
         .queueCount = static_cast<u32>(queue_priorities.size()),
         .pQueuePriorities = queue_priorities.data(),
     };
+    // iss: FSR 3.1 frame generation (TLG_FRAMEGEN=1) presents from its own threads: it gets
+    // queues of its own (compute families first, then transfer ones), never the game's.
+    std::vector<vk::DeviceQueueCreateInfo> queue_infos{queue_info};
+    static constexpr std::array extra_priorities = {1.0f, 1.0f, 1.0f};
+    if (const char* fg = std::getenv("TLG_FRAMEGEN"); fg && fg[0] == '1') {
+        u32 wanted = 3;
+        for (const bool compute : {true, false}) {
+            for (u32 i = 0; i < family_properties.size() && wanted; ++i) {
+                const auto flags = family_properties[i].queueFlags;
+                if (i == queue_family_index || (flags & vk::QueueFlagBits::eGraphics) ||
+                    bool(flags & vk::QueueFlagBits::eCompute) != compute) {
+                    continue;
+                }
+                const u32 count = std::min(wanted, family_properties[i].queueCount);
+                if (!count) continue;
+                queue_infos.push_back({.queueFamilyIndex = i,
+                                       .queueCount = count,
+                                       .pQueuePriorities = extra_priorities.data()});
+                for (u32 q = 0; q < count; ++q) extra_queue_slots.push_back({i, q});
+                wanted -= count;
+            }
+        }
+        std::printf("GPU: %zu extra queues for frame generation\n", extra_queue_slots.size());
+    }
 
     const auto vk11_features = feature_chain.get<vk::PhysicalDeviceVulkan11Features>();
     vk12_features = feature_chain.get<vk::PhysicalDeviceVulkan12Features>();
@@ -555,8 +579,8 @@ bool Instance::CreateDevice() {
     }
     vk::StructureChain device_chain = {
         vk::DeviceCreateInfo{
-            .queueCreateInfoCount = 1u,
-            .pQueueCreateInfos = &queue_info,
+            .queueCreateInfoCount = static_cast<u32>(queue_infos.size()),
+            .pQueueCreateInfos = queue_infos.data(),
             .enabledExtensionCount = static_cast<u32>(enabled_extensions.size()),
             .ppEnabledExtensionNames = enabled_extensions.data(),
         },
@@ -826,6 +850,9 @@ bool Instance::CreateDevice() {
 
     graphics_queue = device->getQueue(queue_family_index, 0);
     present_queue = device->getQueue(queue_family_index, 0);
+    for (const auto& [family, index] : extra_queue_slots) {
+        extra_queues.push_back({device->getQueue(family, index), family});
+    }
 
     if (calibrated_timestamps) {
         const auto [time_domains_result, time_domains] =
