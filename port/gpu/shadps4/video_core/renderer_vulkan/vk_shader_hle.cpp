@@ -110,7 +110,7 @@ static bool MultiCopy(Rasterizer& rasterizer, const VideoCore::Buffer* src,
     scheduler.Record([src = src->Handle(), dst = dst->Handle(), table = stream.Handle(), src_min,
                       src_size, dst_min, dst_size, table_offset, table_size,
                       count](vk::CommandBuffer cmdbuf) {
-        if (Vulkan::Scheduler::FullBarriers()) { // tlg: TLG_FULL_BARRIERS=1
+        if (Vulkan::Scheduler::FullBarriers(Vulkan::Scheduler::SiteHle)) { // tlg: TLG_FULL_BARRIERS=1
             Vulkan::Scheduler::RecordFullBarrier(cmdbuf);
         }
         const std::array<vk::DescriptorBufferInfo, 3> infos{{
@@ -130,7 +130,7 @@ static bool MultiCopy(Rasterizer& rasterizer, const VideoCore::Buffer* src,
         cmdbuf.pushConstants(*pipe.layout, vk::ShaderStageFlagBits::eCompute, 0, sizeof(count),
                              &count);
         cmdbuf.dispatch(count, 1, 1);
-        if (Vulkan::Scheduler::FullBarriers()) {
+        if (Vulkan::Scheduler::FullBarriers(Vulkan::Scheduler::SiteHle)) {
             Vulkan::Scheduler::RecordFullBarrier(cmdbuf);
         }
     });

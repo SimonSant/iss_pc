@@ -704,7 +704,11 @@ public:
 
     /// tlg: TLG_FULL_BARRIERS=1 records a full memory barrier around every render pass and
     /// every compute dispatch, to tell a missing barrier from everything else.
-    static bool FullBarriers();
+    /// iss: TLG_FULL_BARRIERS_SITES=<mask> limits them to some sites (default all): 1 render
+    /// passes, 2 compute dispatches, 4 tiling dispatches (image uploads and downloads), 8 HLE
+    /// shaders, to find which one lacks a barrier.
+    enum BarrierSite : u32 { SiteRender = 1, SiteCompute = 2, SiteTiling = 4, SiteHle = 8 };
+    static bool FullBarriers(u32 site = SiteRender | SiteCompute | SiteTiling | SiteHle);
     static void RecordFullBarrier(vk::CommandBuffer cmdbuf);
 
     /// Sets a function to be called on every scheduler submission.

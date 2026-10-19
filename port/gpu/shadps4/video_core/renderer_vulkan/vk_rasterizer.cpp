@@ -1583,12 +1583,12 @@ void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
         FrameCapture::Dispatch(cs.pgm_hash, dim_x, dim_y, dim_z);
     }
     scheduler.Record([=](vk::CommandBuffer cmdbuf) {
-        if (Scheduler::FullBarriers()) {
+        if (Scheduler::FullBarriers(Scheduler::SiteCompute)) {
             Scheduler::RecordFullBarrier(cmdbuf);
         }
         bind(cmdbuf);
         cmdbuf.dispatch(dim_x, dim_y, dim_z);
-        if (Scheduler::FullBarriers()) {
+        if (Scheduler::FullBarriers(Scheduler::SiteCompute)) {
             Scheduler::RecordFullBarrier(cmdbuf);
         }
     });
@@ -1665,12 +1665,12 @@ void Rasterizer::DispatchIndirectRecord(const ComputePipeline* pipeline, VAddr a
     const vk::Buffer args = buffer->Handle();
     const u64 args_offset = base;
     scheduler.Record([=](vk::CommandBuffer cmdbuf) {
-        if (Scheduler::FullBarriers()) {
+        if (Scheduler::FullBarriers(Scheduler::SiteCompute)) {
             Scheduler::RecordFullBarrier(cmdbuf);
         }
         bind(cmdbuf);
         cmdbuf.dispatchIndirect(args, args_offset);
-        if (Scheduler::FullBarriers()) {
+        if (Scheduler::FullBarriers(Scheduler::SiteCompute)) {
             Scheduler::RecordFullBarrier(cmdbuf);
         }
     });

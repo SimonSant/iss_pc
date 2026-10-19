@@ -56,17 +56,23 @@ Scheduler::~Scheduler() {
 #endif
 }
 
-bool Scheduler::FullBarriers() {
-    static const bool enabled = [] {
+bool Scheduler::FullBarriers(u32 site) {
+    static const u32 sites = [] {
         const char* env = std::getenv("TLG_FULL_BARRIERS");
-        const bool on = env && env[0] == '1';
-        if (on) {
-            // In last_run.log whatever the GPU log level, so a tester's log shows the mode.
-            std::printf("GPU: full barriers on (TLG_FULL_BARRIERS=1)\n");
+        if (!(env && env[0] == '1')) {
+            return 0u;
         }
-        return on;
+        u32 mask = SiteRender | SiteCompute | SiteTiling | SiteHle;
+        if (const char* only = std::getenv("TLG_FULL_BARRIERS_SITES"); only && only[0]) {
+            mask = u32(std::strtoul(only, nullptr, 0)) & mask;
+        }
+        // In last_run.log whatever the GPU log level, so a tester's log shows the mode.
+        std::printf("GPU: full barriers on (TLG_FULL_BARRIERS=1), sites 0x%x "
+                    "(1 render, 2 compute, 4 tiling, 8 HLE)\n",
+                    mask);
+        return mask;
     }();
-    return enabled;
+    return (sites & site) != 0;
 }
 
 void Scheduler::RecordFullBarrier(vk::CommandBuffer cmdbuf) {
@@ -135,7 +141,7 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
     };
 
     if (!recording_threaded) {
-        if (FullBarriers()) {
+        if (FullBarriers(SiteRender)) {
             RecordFullBarrier(current_cmdbuf);
         }
         current_cmdbuf.beginRendering(rendering_info);
@@ -151,7 +157,7 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
         if (info.pStencilAttachment) {
             info.pStencilAttachment = &stencil_attachment;
         }
-        if (FullBarriers()) {
+        if (FullBarriers(SiteRender)) {
             RecordFullBarrier(cmdbuf);
         }
         cmdbuf.beginRendering(info);
@@ -170,7 +176,7 @@ void Scheduler::EndRendering() {
     is_rendering = false;
     Record([](vk::CommandBuffer cmdbuf) {
         cmdbuf.endRendering();
-        if (FullBarriers()) {
+        if (FullBarriers(SiteRender)) {
             RecordFullBarrier(cmdbuf);
         }
     });
