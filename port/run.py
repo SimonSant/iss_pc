@@ -179,17 +179,9 @@ def main():
             env.setdefault('TLG_WINDOW_ICON', str(out / 'window_icon.bmp'))
         except (ImportError, OSError):
             pass
-        # iss: ISS_UPSCALER=1 calibrates the temporal upscalers for this game: the game's own
-        # motion vectors (camera pass 2bb2320e, moving objects drawn into the same target), the
-        # upscale before the first post-processing pass after them (depth of field, motion
-        # blur, bloom composite or the tonemap). Without it they stay off (not calibrated).
-        # Linear image readbacks fix its corrupted textures.
-        if env.get('ISS_UPSCALER') == '1':
-            env.setdefault('TLG_GAME_MOTION_PS', '2bb2320e')
-            env.setdefault('TLG_UPSCALE_BEFORE_PS', '3bc5b0b1,f47f183e,5acb9dad,a291d5b2,46335d73,2e624729')
-            env.setdefault('TLG_OBJECT_MOTION', '0')
-        else:
-            env.setdefault('TLG_UPSCALER', 'none')
+        # The temporal upscalers and motion vectors are not calibrated for this game yet; linear
+        # image readbacks fix its corrupted textures.
+        env.setdefault('TLG_UPSCALER', 'none')
         env.setdefault('TLG_READBACK_LINEAR', '1')
         if patched:
             # The patch notes give the direct memory and VBlank rate the selected patches need.

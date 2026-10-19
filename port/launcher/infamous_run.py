@@ -581,10 +581,34 @@ def save_experimental(settings, states):
     save_settings(settings)
 
 
+# iss: the temporal upscalers calibrated for this game: its own motion vectors (camera pass
+# 2bb2320e; moving objects are drawn into the same target) and the upscale before the first
+# post-processing pass after them (depth of field, motion blur, bloom composite or the tonemap).
+GAME_MOTION_PS = '2bb2320e'
+UPSCALE_BEFORE_PS = '3bc5b0b1,f47f183e,5acb9dad,a291d5b2,46335d73,2e624729'
+UPSCALER_NAMES = ('fsr3', 'fsr4', 'fsr411', 'taa', 'dlss')
+
+
+def apply_upscaler_environment(env):
+    """ISS_UPSCALER=1 (or on) enables the calibrated upscalers and lets tlg.ini / the Insert menu
+    pick one; ISS_UPSCALER=fsr3 (fsr4, ...) also forces that one; off (default) leaves them off.
+    Changes env in place; an explicit TLG_ variable in it always wins."""
+    choice = env.get('ISS_UPSCALER', 'off').strip().lower()
+    if choice not in ('1', 'on', *UPSCALER_NAMES):
+        return
+    env.setdefault('TLG_GAME_MOTION_PS', GAME_MOTION_PS)
+    env.setdefault('TLG_UPSCALE_BEFORE_PS', UPSCALE_BEFORE_PS)
+    env.setdefault('TLG_OBJECT_MOTION', '0')
+    if choice in ('1', 'on'):
+        # The probe would copy it to TLG_UPSCALER, where '1' is an unknown name (off).
+        del env['ISS_UPSCALER']
+
+
 def build_env(settings, extra=None):
     env = dict(os.environ)
     for key, value in DEFAULT_ENV.items():
         env.setdefault(key, value)  # explicit ISS_* in the environment always win
+    apply_upscaler_environment(env)
     env['ISS_GC_BUDGET_MB'] = os.environ.get('ISS_GC_BUDGET_MB', str(int(settings['vram_budget_mb'])))
     env['ISS_READBACKS'] = os.environ.get('ISS_READBACKS', str(settings.get('gpu_readbacks', '2')))
     env['ISS_EAGER_READBACK'] = os.environ.get('ISS_EAGER_READBACK', '1' if settings.get('eager_readback', False) else '0')
