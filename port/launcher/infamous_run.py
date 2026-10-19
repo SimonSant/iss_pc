@@ -599,6 +599,9 @@ def apply_upscaler_environment(env):
     env.setdefault('TLG_GAME_MOTION_PS', GAME_MOTION_PS)
     env.setdefault('TLG_UPSCALE_BEFORE_PS', UPSCALE_BEFORE_PS)
     env.setdefault('TLG_OBJECT_MOTION', '0')
+    # The game runs in the user folder (saves, tlg.ini): the FSR 4 assets are beside the port.
+    env.setdefault('TLG_FSR4_DIR', str(PORT_DIR / 'fsr4_shaders'))
+    env.setdefault('TLG_FSR411_DIR', str(PORT_DIR / 'fsr4_411'))
     if choice in ('1', 'on'):
         # The probe would copy it to TLG_UPSCALER, where '1' is an unknown name (off).
         del env['ISS_UPSCALER']
