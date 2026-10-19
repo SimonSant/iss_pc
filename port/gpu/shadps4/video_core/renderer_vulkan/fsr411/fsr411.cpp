@@ -79,6 +79,7 @@ struct Reflection {
     std::string entry = "main";
     uint32_t local_size[3] = {1, 1, 1};
     std::vector<Binding> bindings;
+    bool cooperative_matrix = false; ///< iss: the native AMD variant (wave32, as on D3D12)
 };
 
 bool Reflect(const std::vector<uint32_t>& words, Reflection& out, std::string& error) {
@@ -118,6 +119,11 @@ bool Reflect(const std::vector<uint32_t>& words, Reflection& out, std::string& e
         }
         const uint32_t* w = &words[i];
         switch (op) {
+        case 17: // OpCapability
+            if (count >= 2 && w[1] == 6022) { // CooperativeMatrixKHR
+                out.cooperative_matrix = true;
+            }
+            break;
         case 5: // OpName
             names[w[1]] = string_at(i + 2, i + count);
             break;
@@ -206,6 +212,7 @@ struct Upscaler::Impl {
     VkPhysicalDeviceMemoryProperties memory{};
     VkDeviceSize ubo_align = 256;
     PFN_vkCmdPushDescriptorSetKHR push_descriptors = nullptr;
+    bool wave32 = false; ///< iss: a compute pipeline can require subgroups of 32
 
     // Current set and sizes.
     std::string set;
@@ -224,6 +231,9 @@ struct Upscaler::Impl {
     /// groups.txt: the DLL picks other shader variants on some drivers (Windows, AMD), with other
     /// tiles. Passes not listed keep the built-in rules.
     std::map<std::string, std::pair<uint32_t, uint32_t>> tiles;
+    /// The _post passes' border margin (columns, at most) and the alignment of the tier's tensor
+    /// width they count it from (groups.txt "post_margin <columns> <alignment>").
+    uint32_t post_margin = 5, post_align = 1;
     VkSampler linear_clamp = VK_NULL_HANDLE;
 
     struct Img {
@@ -259,6 +269,13 @@ struct Upscaler::Impl {
         push_descriptors = reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(
             vkGetDeviceProcAddr(device, "vkCmdPushDescriptorSetKHR"));
         period_ns = props.limits.timestampPeriod;
+        // iss: the cooperative matrix passes run in waves of 32, as AMD's driver runs them on D3D12.
+        VkPhysicalDeviceVulkan13Properties vk13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES};
+        VkPhysicalDeviceProperties2 props2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+        props2.pNext = &vk13;
+        vkGetPhysicalDeviceProperties2(physical, &props2);
+        wave32 = vk13.minSubgroupSize <= 32 && vk13.maxSubgroupSize >= 32 &&
+                 (vk13.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT);
         const char* profile = std::getenv("TLG_FSR4_PROFILE");
         if (profile && profile[0] == '1') {
             VkQueryPoolCreateInfo qci{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
@@ -470,6 +487,12 @@ struct Upscaler::Impl {
         pci.stage.module = module;
         pci.stage.pName = p.refl.entry.c_str();
         pci.layout = p.layout;
+        VkPipelineShaderStageRequiredSubgroupSizeCreateInfo subgroup{
+            VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO};
+        subgroup.requiredSubgroupSize = 32;
+        if (p.refl.cooperative_matrix && wave32) {
+            pci.stage.pNext = &subgroup;
+        }
         const VkResult r = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pci, nullptr, &p.pipeline);
         vkDestroyShaderModule(device, module, nullptr);
         if (r != VK_SUCCESS) {
@@ -503,11 +526,20 @@ struct Upscaler::Impl {
             }
         }
         tiles.clear();
+        post_margin = 5;
+        post_align = 1;
         if (std::ifstream groups{dir + "/" + set + "/groups.txt"}) {
             std::string pass;
             uint32_t tx = 0, ty = 0;
             while (groups >> pass >> tx >> ty) {
-                if (tx && ty) tiles[pass] = {tx, ty};
+                if (pass == "post_margin") {
+                    if (ty) {
+                        post_margin = tx;
+                        post_align = ty;
+                    }
+                } else if (tx && ty) {
+                    tiles[pass] = {tx, ty};
+                }
             }
         }
         if (!ReadFile(dir + "/" + set + "/initializer.bin", initializer_data) ||
@@ -764,9 +796,9 @@ struct Upscaler::Impl {
                 const uint32_t k = name == "pass0_post" ? 0 : uint32_t(std::stoi(name.substr(4)));
                 const uint32_t level = k ? kPostLevel[k] : 1;
                 const uint32_t w = aw >> level, h = ah >> level;
-                const uint32_t tw = (tier2160 ? 3840u : 1920u) >> level;
+                const uint32_t tw = CeilDiv((tier2160 ? 3840u : 1920u) >> level, post_align) * post_align;
                 const uint32_t th = (tier2160 ? 2160u : 1080u) >> level;
-                const uint32_t kx = std::min(tw + 1 - w, 5u), ky = std::min(th + 1 - h, 1u);
+                const uint32_t kx = std::min(tw + 1 - w, post_margin), ky = std::min(th + 1 - h, 1u);
                 const uint32_t threads = (w + 1 + kx) + h + h * kx + (w + 1 + kx) * ky;
                 gx = CeilDiv(threads, p.refl.local_size[0]);
             } else {

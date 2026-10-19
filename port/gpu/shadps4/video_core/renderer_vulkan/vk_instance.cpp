@@ -279,6 +279,7 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceImage2DViewOf3DFeaturesEXT, vk::PhysicalDeviceShaderClockFeaturesKHR,
         vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR,
         vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE,
+        vk::PhysicalDeviceCooperativeMatrixFeaturesKHR,
         vk::PhysicalDevicePipelineBinaryFeaturesKHR,
         vk::PhysicalDeviceMaintenance5FeaturesKHR,
         vk::PhysicalDevicePipelineExecutablePropertiesFeaturesKHR>();
@@ -469,6 +470,12 @@ bool Instance::CreateDevice() {
         feature_chain.get<vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE>()
             .shaderMixedFloatDotProductFloat16AccFloat32 &&
         add_extension(VK_VALVE_SHADER_MIXED_FLOAT_DOT_PRODUCT_EXTENSION_NAME);
+    // iss: FSR 4.1.1 as AMD's DLL runs on native AMD drivers (the model passes multiply 16x16
+    // half matrices with cooperative matrices, in the Vulkan memory model).
+    cooperative_matrix =
+        feature_chain.get<vk::PhysicalDeviceCooperativeMatrixFeaturesKHR>().cooperativeMatrix &&
+        feature_chain.get<vk::PhysicalDeviceVulkan12Features>().vulkanMemoryModel &&
+        add_extension(VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME);
     if (compute_shader_derivatives) {
         compute_shader_derivatives_features =
             feature_chain.get<vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR>();
@@ -597,6 +604,9 @@ bool Instance::CreateDevice() {
             .hostQueryReset = vk12_features.hostQueryReset,
             .timelineSemaphore = vk12_features.timelineSemaphore,
             .bufferDeviceAddress = vk12_features.bufferDeviceAddress,
+            .vulkanMemoryModel = cooperative_matrix,
+            .vulkanMemoryModelDeviceScope =
+                cooperative_matrix && vk12_features.vulkanMemoryModelDeviceScope,
             .shaderOutputLayer = vk12_features.shaderOutputLayer,
         },
         vk::PhysicalDeviceVulkan13Features{
@@ -705,6 +715,9 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE{
             .shaderMixedFloatDotProductFloat16AccFloat32 = true,
         },
+        vk::PhysicalDeviceCooperativeMatrixFeaturesKHR{
+            .cooperativeMatrix = true,
+        },
         vk::PhysicalDevicePipelineExecutablePropertiesFeaturesKHR{
             .pipelineExecutableInfo = pipeline_executable_features.pipelineExecutableInfo,
         },
@@ -777,6 +790,9 @@ bool Instance::CreateDevice() {
     }
     if (!mixed_float_dot_product) {
         device_chain.unlink<vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE>();
+    }
+    if (!cooperative_matrix) {
+        device_chain.unlink<vk::PhysicalDeviceCooperativeMatrixFeaturesKHR>();
     }
 
     auto [device_result, dev] = physical_device.createDeviceUnique(device_chain.get());

@@ -67,6 +67,38 @@ def pass_extent(name, rw, rh, ow, oh):
         return aw >> LEVEL[int(m[1])], ah >> LEVEL[int(m[1])]
     return aw, ah
 
+POST_LEVEL = [1, 1, 1, 2, 2, 2, 3, 3, 3, 2, 2, 1, 1]
+
+def local_size_x(spv):
+    asm = subprocess.run(['spirv-dis', spv], check=True, capture_output=True, text=True).stdout
+    return int(re.search(r'OpExecutionMode %\w+ LocalSize (\d+)', asm)[1])
+
+def fit_post(key, seen, shaders, d, prefer=None):
+    """The _post passes clear a tensor's border: threads (w+1+kx)(1+ky) + h(1+kx), kx and ky the
+    columns and rows past it (kx at most <margin>, from the tier width aligned to <align>).
+    None when the built-in rule (5, 1) holds, else the (margin, align) every capture agrees on."""
+    local = {}
+    def ok(margin, align):
+        for w, h, tw, th, shader, gx in seen:
+            if shader not in local:
+                name = next(n for n, hsh in shaders.items() if hsh == shader)
+                local[shader] = local_size_x(os.path.join(d, f'{name}.spv'))
+            twa = ceil_div(tw, align) * align
+            kx, ky = min(twa + 1 - w, margin), min(th + 1 - h, 1)
+            if ceil_div((w + 1 + kx) * (1 + ky) + h * (1 + kx), local[shader]) != gx:
+                return False
+        return True
+    if ok(5, 1):
+        return None
+    if prefer and ok(*prefer):
+        return prefer
+    for align in (64, 32, 16, 8, 1):
+        for margin in range(1, 129):
+            if ok(margin, align):
+                return margin, align
+    fail(f'{key}: no border margin fits the _post passes')
+    return None
+
 def fit_tiles(key, name, seen):
     """None when the built-in rule holds, else the one (x, y) tile every capture agrees on."""
     if all(groups == want for _, groups, want in seen):
@@ -98,6 +130,13 @@ for cap in sorted(glob.glob(os.path.join(root, 'capture_*'))):
     entry['caps'].append(os.path.basename(cap))
     for (h, gx, gy, gz, body), name in zip(disp, names):
         groups = (int(gx), int(gy), int(gz))
+        if name.endswith('_post'):
+            k = 0 if name == 'pass0_post' else int(name[4:-5])
+            level = POST_LEVEL[k] if k else 1
+            entry.setdefault('post', []).append((
+                ((ow + 7) & ~7) >> level, ((oh + 7) & ~7) >> level,
+                (3840 if tier == 't2160' else 1920) >> level, (2160 if tier == 't2160' else 1080) >> level,
+                h, int(gx)))
         want = expected_groups(name, rw, rh, ow, oh)
         if want:
             # Other drivers (Windows, AMD) get shader variants with other tiles: groups.txt.
@@ -130,6 +169,17 @@ for cap in sorted(glob.glob(os.path.join(root, 'capture_*'))):
         fail(f'{cap}: initializer differs within {key}')
     entry['init'] = blob
 
+# The _post margin every set agrees on (a set with few captures fits several equivalent ones).
+common_post = None
+for key, entry in sorted(sets.items(), key=lambda item: -len(item[1].get('post', []))):
+    d = os.path.join(out, key)
+    os.makedirs(d, exist_ok=True)
+    for name, path in entry['dxil'].items():
+        if name.endswith('_post'):
+            subprocess.run([dxil_spirv, path, *FLAGS, '--output', os.path.join(d, f'{name}.spv')],
+                           check=True, stderr=subprocess.DEVNULL)
+    common_post = fit_post(key, entry.get('post', []), entry['shaders'], d, common_post) or common_post
+
 for key, entry in sorted(sets.items()):
     d = os.path.join(out, key)
     os.makedirs(d, exist_ok=True)
@@ -142,12 +192,20 @@ for key, entry in sorted(sets.items()):
             asm = subprocess.run(['spirv-dis', os.path.join(d, 'postpass_orig.spv')], check=True,
                                  capture_output=True, text=True).stdout
             lds = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), 'postpass_lds.py')],
-                                 input=asm, check=True, capture_output=True, text=True).stdout
-            subprocess.run(['spirv-as', '--target-env', 'spv1.3', '-', '-o', spv], input=lds, check=True,
-                           text=True)
+                                 input=asm, capture_output=True, text=True)
+            if lds.returncode == 0:
+                subprocess.run(['spirv-as', '--target-env', 'spv1.3', '-', '-o', spv], input=lds.stdout,
+                               check=True, text=True)
+            else:
+                # Another shader variant (other drivers): the plain translation.
+                print(f'{key} postpass: kept as translated ({lds.stderr.strip()})')
+                os.replace(os.path.join(d, 'postpass_orig.spv'), spv)
     open(os.path.join(d, 'initializer.bin'), 'wb').write(entry['init'])
     tiles = {name: fit_tiles(key, name, seen) for name, seen in entry.get('groups', {}).items()}
     tiles = {name: tile for name, tile in tiles.items() if tile}
+    post = fit_post(key, entry.get('post', []), entry['shaders'], d, common_post)
+    if post:
+        tiles['post_margin'] = post
     groups_txt = os.path.join(d, 'groups.txt')
     if tiles:
         with open(groups_txt, 'w') as f:

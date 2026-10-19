@@ -310,9 +310,15 @@ public:
                features.shaderStorageImageExtendedFormats;
     }
 
-    /// tlg: FSR 4.1.1 (INT8 model passes and VK_VALVE_shader_mixed_float_dot_product).
+    /// tlg: FSR 4.1.1: the shader variant vkd3d-proton gets (INT8 model passes and
+    /// VK_VALVE_shader_mixed_float_dot_product) or the one native AMD drivers get (iss: cooperative
+    /// matrices of halves, Vulkan memory model). The asset set decides which one runs.
     bool IsFsr411Supported() const {
-        return IsFsr4Int8Supported() && mixed_float_dot_product;
+        return (IsFsr4Int8Supported() && mixed_float_dot_product) || IsFsr411MatrixSupported();
+    }
+    bool IsFsr411MatrixSupported() const {
+        return cooperative_matrix && vk12_features.shaderFloat16 && vk12_features.shaderInt8 &&
+               features.shaderInt16 && vk12_features.storageBuffer8BitAccess;
     }
 
     /// VK_KHR_shader_clock is supported.
@@ -601,6 +607,7 @@ private:
     bool amd_shader_info{};                // tlg: with it, VK_AMD_shader_info when present
     bool compute_shader_derivatives{};
     bool mixed_float_dot_product{}; // tlg: VK_VALVE_shader_mixed_float_dot_product (FSR 4.1.1)
+    bool cooperative_matrix{};      // iss: VK_KHR_cooperative_matrix + vulkanMemoryModel (FSR 4.1.1)
     bool supports_memory_budget{};
     bool pageable_device_local_memory{};
     bool supports_block_texel_view{};

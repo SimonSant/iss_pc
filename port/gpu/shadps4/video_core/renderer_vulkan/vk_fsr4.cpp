@@ -233,7 +233,8 @@ struct Fsr4Upscaler::Impl {
 
     bool Record411(const Frame& f) {
         if (!instance.IsFsr411Supported()) {
-            Fail("FSR 4.1.1 needs INT8 dot products and VK_VALVE_shader_mixed_float_dot_product", true);
+            Fail("FSR 4.1.1 needs INT8 dot products and VK_VALVE_shader_mixed_float_dot_product, "
+                 "or cooperative matrices", true);
             return false;
         }
         if (!fsr411) {
