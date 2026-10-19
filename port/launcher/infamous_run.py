@@ -672,16 +672,15 @@ def apply_fsr_choice(env, settings):
     if ini.get('upscaler', 'off') in ('', 'off'):
         return
     env['ISS_UPSCALER'] = '1'
-    # Pro mode: FSR's output is 4K. A quality mode makes the game itself render smaller (Pro size
-    # patch, mods_dir) and FSR upscale it: the startup-resolution path (TLG_RENDER_RES).
-    output = '3840x2160' if neo else '1920x1080'
+    # Pro mode: the game renders at the quality mode's size (Pro size patch, mods_dir), FSR runs
+    # at that size and FSR 1 enlarges the finished image to the window.
+    output = '1920x1080'
     if neo:
         width, height = pro_scene_size(settings)
-        if (width, height) == (3840, 2160):
-            env.setdefault('TLG_NATIVE_OUTPUT', '1')
-        else:
-            env.setdefault('TLG_RENDER_RES', f'{width}x{height}')
-            env.setdefault('TLG_OUTPUT_RES', output)
+        output = f'{width}x{height}'
+        env.setdefault('TLG_NATIVE_OUTPUT', '1')
+        if width < 3840:
+            env.setdefault('TLG_FSR1', '1')
     if ini.get('output_res') != output:
         update_ini(path, {'output_res': output})
 

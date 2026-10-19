@@ -307,7 +307,13 @@ bool TemporalUpscaler::OnFrameStart() {
     const auto& settings = TlgSettings::Get();
     // The guest's startup resolution patch remains in effect until restart. Keep the FSR
     // model at the applied preset while the menu saves the requested one for run.sh.
-    const int preset = TlgSettings::RenderPreset();
+    // iss: in PS4 Pro mode the game itself renders at the quality mode's size (the launcher's Pro
+    // size patch, TLG_NATIVE_OUTPUT at that size): the host targets are never reduced further.
+    static const bool neo = [] {
+        const char* env = std::getenv("TLG_NEO_MODE");
+        return env && env[0] == '1';
+    }();
+    const int preset = neo ? 0 : TlgSettings::RenderPreset();
     if (applied_preset != preset || settings.upscaler == TlgSettings::UpscalerOff) failed = false;
     const bool active = Active();
     const bool jitter_on = active && settings.jitter && !TlgToggle::Disabled(1u << 25);
