@@ -32,6 +32,7 @@ if [[ ! -x $dx/build/dxil-spirv ]]; then
     git -C "$dx" checkout -q 7dc52786cdb1f53c54dd5c5c2698dff00ea5f0a3
     git -C "$dx" submodule update -q --init --recursive
     git -C "$dx" apply "$PWD/tools/fsr4cap/dxil-spirv-class-bindings.patch"
+    git -C "$dx" apply "$PWD/tools/fsr4cap/dxil-spirv-fp8-lds-transfer.patch"
     cmake -S "$dx" -B "$dx/build" -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
     ninja -C "$dx/build" dxil-spirv >/dev/null
 fi

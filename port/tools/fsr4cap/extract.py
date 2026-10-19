@@ -20,6 +20,11 @@ FLAGS = ['--enable-shader-i8-dot', '--ssbo-uav', '--ssbo-srv', '--class-bindings
 PREFIX = 'fsr4_model_v07_fp8_no_scale_'
 SEQUENCE = ['spd', 'prepass', 'pass0_post'] + [f'pass{k}{s}' for k in range(1, 13) for s in ('', '_post')] + ['postpass', 'rcas']
 LEVEL = {1: 1, 2: 1, 3: 2, 4: 2, 5: 2, 6: 3, 7: 3, 8: 3, 9: 3, 10: 2, 11: 2, 12: 1}
+# iss: FSR4CAP_FP8=1 (captures from native AMD drivers, wave matrix variant): real FP8 types
+# (VK_EXT_shader_float8) instead of the FP16 emulation, whose element-wise conversions assume
+# RADV's matrix layouts; needs dxil-spirv with dxil-spirv-fp8-lds-transfer.patch. Waves of 32.
+if os.environ.get('FSR4CAP_FP8') == '1':
+    FLAGS = ['--full-wmma', '1', '0', '--subgroup-size', '32', '64'] + FLAGS
 errors = 0
 
 def fail(msg):

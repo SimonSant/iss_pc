@@ -1,0 +1,15 @@
+diff --git a/opcodes/dxil/dxil_ags.cpp b/opcodes/dxil/dxil_ags.cpp
+index 6426251c..53df35cd 100644
+--- a/opcodes/dxil/dxil_ags.cpp
++++ b/opcodes/dxil/dxil_ags.cpp
+@@ -528,7 +528,9 @@ static spv::Id emit_coopmat_transpose(Converter::Impl &impl, spv::Id v, uint32_t
+ {
+ 	auto &builder = impl.builder();
+ 
+-	if (impl.options.wmma_fp8)
++	// iss: the element-wise shortcut below assumes RADV's layouts (B and C alike for FP8); AMD's
++	// Windows driver may not. Always go through LDS (explicit layout, any driver).
++	if (impl.options.wmma_fp8 && false)
+ 	{
+ 		if (get_matrix_type(input_imm) != AmdExtD3DShaderIntrinsicsWaveMatrixType_A &&
+ 		    get_matrix_type(output_imm) != AmdExtD3DShaderIntrinsicsWaveMatrixType_A &&

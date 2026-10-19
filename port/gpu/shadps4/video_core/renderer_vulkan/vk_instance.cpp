@@ -280,6 +280,7 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR,
         vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE,
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR,
+        vk::PhysicalDeviceShaderFloat8FeaturesEXT,
         vk::PhysicalDevicePipelineBinaryFeaturesKHR,
         vk::PhysicalDeviceMaintenance5FeaturesKHR,
         vk::PhysicalDevicePipelineExecutablePropertiesFeaturesKHR>();
@@ -476,6 +477,13 @@ bool Instance::CreateDevice() {
         feature_chain.get<vk::PhysicalDeviceCooperativeMatrixFeaturesKHR>().cooperativeMatrix &&
         feature_chain.get<vk::PhysicalDeviceVulkan12Features>().vulkanMemoryModel &&
         add_extension(VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME);
+    // iss: FP8 cooperative matrices (FSR 4.1.1 translated with native FP8, as on AMD's drivers).
+    const auto& float8 = feature_chain.get<vk::PhysicalDeviceShaderFloat8FeaturesEXT>();
+    shader_float8 = cooperative_matrix && float8.shaderFloat8 &&
+                    float8.shaderFloat8CooperativeMatrix &&
+                    add_extension(VK_EXT_SHADER_FLOAT8_EXTENSION_NAME);
+    std::printf("GPU: cooperative matrices %s, FP8 cooperative matrices %s (FSR 4.1.1)\n",
+                cooperative_matrix ? "on" : "off", shader_float8 ? "on" : "off");
     if (compute_shader_derivatives) {
         compute_shader_derivatives_features =
             feature_chain.get<vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR>();
@@ -718,6 +726,10 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR{
             .cooperativeMatrix = true,
         },
+        vk::PhysicalDeviceShaderFloat8FeaturesEXT{
+            .shaderFloat8 = true,
+            .shaderFloat8CooperativeMatrix = true,
+        },
         vk::PhysicalDevicePipelineExecutablePropertiesFeaturesKHR{
             .pipelineExecutableInfo = pipeline_executable_features.pipelineExecutableInfo,
         },
@@ -793,6 +805,9 @@ bool Instance::CreateDevice() {
     }
     if (!cooperative_matrix) {
         device_chain.unlink<vk::PhysicalDeviceCooperativeMatrixFeaturesKHR>();
+    }
+    if (!shader_float8) {
+        device_chain.unlink<vk::PhysicalDeviceShaderFloat8FeaturesEXT>();
     }
 
     auto [device_result, dev] = physical_device.createDeviceUnique(device_chain.get());

@@ -608,6 +608,7 @@ private:
     bool compute_shader_derivatives{};
     bool mixed_float_dot_product{}; // tlg: VK_VALVE_shader_mixed_float_dot_product (FSR 4.1.1)
     bool cooperative_matrix{};      // iss: VK_KHR_cooperative_matrix + vulkanMemoryModel (FSR 4.1.1)
+    bool shader_float8{};           // iss: VK_EXT_shader_float8 with FP8 cooperative matrices
     bool supports_memory_budget{};
     bool pageable_device_local_memory{};
     bool supports_block_texel_view{};
