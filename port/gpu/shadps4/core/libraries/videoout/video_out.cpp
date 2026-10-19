@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdio>
+#include <cstdlib>
 #include "common/assert.h"
 #include "common/elf_info.h"
 #include "common/logging/log.h"
@@ -140,8 +142,19 @@ s32 PS4_SYSV_ABI sceVideoOutRegisterBuffers(s32 handle, s32 startIndex, void* co
 }
 
 s32 PS4_SYSV_ABI sceVideoOutSetFlipRate(s32 handle, s32 rate) {
-    LOG_TRACE(Lib_VideoOut, "called");
-    driver->GetPort(handle)->flip_rate = rate;
+    // iss: 0 flips every vblank (60 fps), 1 every second one (30 fps), 2 every third (20 fps).
+    // The game picks it; TLG_FLIP_RATE=n overrides it (tests). Logged when it changes.
+    static const int forced = [] {
+        const char* env = std::getenv("TLG_FLIP_RATE");
+        return env && env[0] ? std::atoi(env) : -1;
+    }();
+    static int last = -1;
+    if (rate != last) {
+        last = rate;
+        std::printf("VideoOut: game flip rate %d%s\n", rate,
+                    forced >= 0 ? " (TLG_FLIP_RATE overrides it)" : "");
+    }
+    driver->GetPort(handle)->flip_rate = forced >= 0 ? forced : rate;
     return ORBIS_OK;
 }
 
