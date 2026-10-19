@@ -163,8 +163,19 @@ static ABI int32_t ef_wait(EventFlag *ef,uint64_t pattern,uint32_t mode,uint64_t
 }
 
 /* ---- Kernel queries ---- */
-/* Base PS4 (not Pro): 1080p output path and the 0xb0000000 GPU memory layout. */
-static ABI int32_t is_neo_mode(void) { return 0; }
+/* Base PS4 (not Pro): 1080p output path and the 0xb0000000 GPU memory layout. iss:
+ * TLG_NEO_MODE=1 (ISS_NEO_MODE) answers as a PS4 Pro, as shadPS4's neo_mode does: the game takes
+ * its Pro paths (with a resolution patch, native 1440p to 2160p rendering); the GPU core (shim
+ * sceKernelIsNeoMode) and the direct memory pool (runtime_memory.c) follow the same switch. */
+static int runtime_neo_mode(void) {
+    static int neo = -1;
+    if (neo < 0) {
+        const char *env = getenv("TLG_NEO_MODE");
+        neo = env && env[0] == '1';
+    }
+    return neo;
+}
+static ABI int32_t is_neo_mode(void) { return runtime_neo_mode(); }
 static ABI int32_t available_flexible_memory(uint64_t *size) {
     if (!size) return KERR_EINVAL;
     *size=UINT64_C(448)*1024*1024; return 0;

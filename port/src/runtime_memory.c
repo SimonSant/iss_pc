@@ -28,9 +28,12 @@
 static uint64_t pool_size_bytes(void) {
     static uint64_t size;
     if (!size) {
+        /* PS4 Pro (TLG_NEO_MODE): 640 MB more, as shadPS4 (5888 MB total instead of 5248). */
+        const char *neo = getenv("TLG_NEO_MODE");
+        const uint64_t base = neo && neo[0] == '1' ? 5696 : 5056;
         const char *env = getenv("TLG_DMEM_MB");
         uint64_t mb = env ? strtoull(env, NULL, 10) : 0;
-        if (mb < 5056 || mb > 16384) mb = 5056;
+        if (mb < base || mb > 16384) mb = base;
         size = mb * 1024 * 1024;
     }
     return size;

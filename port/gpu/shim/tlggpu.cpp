@@ -179,7 +179,14 @@ u64 PS4_SYSV_ABI sceKernelReadTsc() { return runtime_read_tsc(); }
 u64 PS4_SYSV_ABI sceKernelGetProcessTime() { return runtime_process_time_us(); }
 u64 PS4_SYSV_ABI sceKernelGetProcessTimeCounter() { return runtime_process_time_counter(); }
 u64 PS4_SYSV_ABI sceKernelGetProcessTimeCounterFrequency() { return 1'000'000'000; }
-s32 PS4_SYSV_ABI sceKernelIsNeoMode() { return 0; } // base PS4
+// Base PS4, or PS4 Pro with TLG_NEO_MODE=1 (iss: as runtime_tlg.c is_neo_mode answers the game).
+s32 PS4_SYSV_ABI sceKernelIsNeoMode() {
+    static const s32 neo = [] {
+        const char* env = std::getenv("TLG_NEO_MODE");
+        return env && env[0] == '1' ? 1 : 0;
+    }();
+    return neo;
+}
 s32 PS4_SYSV_ABI sceKernelGetCompiledSdkVersion(s32* ver) {
     if (!ver) return ORBIS_KERNEL_ERROR_EINVAL;
     *ver = s32(g_sdk_version);
