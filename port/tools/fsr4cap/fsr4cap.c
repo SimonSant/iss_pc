@@ -156,6 +156,64 @@ static void FillDepth(uint8_t* row, UINT w) {
     for (UINT x = 0; x < w; ++x) p[x] = 0.9f + Next() * 0.1f;
 }
 
+// iss: FSR4CAP_NO_AMDEXT=1 hides AMD's driver extension (AmdExtD3DCreateInterface in amdxc64, the
+// wave matrix intrinsics) from the upscaler DLL: on native AMD drivers it then records the shader
+// variant without wave matrices (INT8 dot products), the one vkd3d-proton gets and the replay was
+// verified against. The DLL's imports of GetProcAddress and GetModuleHandleA/W are patched.
+static FARPROC WINAPI HiddenGetProcAddress(HMODULE module, LPCSTR name) {
+    if ((uintptr_t)name > 0xffff && strncmp(name, "AmdExt", 6) == 0) {
+        printf("hidden from the DLL: %s\n", name);
+        return NULL;
+    }
+    return GetProcAddress(module, name);
+}
+static HMODULE WINAPI HiddenGetModuleHandleA(LPCSTR name) {
+    if (name && _strnicmp(name, "amdxc", 5) == 0) {
+        printf("hidden from the DLL: module %s\n", name);
+        return NULL;
+    }
+    return GetModuleHandleA(name);
+}
+static HMODULE WINAPI HiddenGetModuleHandleW(LPCWSTR name) {
+    if (name && _wcsnicmp(name, L"amdxc", 5) == 0) {
+        printf("hidden from the DLL: module %ls\n", name);
+        return NULL;
+    }
+    return GetModuleHandleW(name);
+}
+static void PatchImport(HMODULE module, const char* function, void* replacement) {
+    uint8_t* base = (uint8_t*)module;
+    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+    IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!dir.VirtualAddress) return;
+    for (IMAGE_IMPORT_DESCRIPTOR* d = (IMAGE_IMPORT_DESCRIPTOR*)(base + dir.VirtualAddress); d->Name; ++d) {
+        IMAGE_THUNK_DATA* names = (IMAGE_THUNK_DATA*)(base + (d->OriginalFirstThunk ? d->OriginalFirstThunk : d->FirstThunk));
+        IMAGE_THUNK_DATA* slots = (IMAGE_THUNK_DATA*)(base + d->FirstThunk);
+        for (; names->u1.AddressOfData; ++names, ++slots) {
+            if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) continue;
+            IMAGE_IMPORT_BY_NAME* by_name = (IMAGE_IMPORT_BY_NAME*)(base + names->u1.AddressOfData);
+            if (strcmp((const char*)by_name->Name, function) != 0) continue;
+            DWORD old;
+            VirtualProtect(&slots->u1.Function, sizeof(void*), PAGE_READWRITE, &old);
+            slots->u1.Function = (ULONGLONG)(uintptr_t)replacement;
+            VirtualProtect(&slots->u1.Function, sizeof(void*), old, &old);
+            printf("patched %s import of %s\n", (const char*)(base + d->Name), function);
+        }
+    }
+}
+static void HideAmdExtension(void) {
+    const char* env = getenv("FSR4CAP_NO_AMDEXT");
+    if (!env || env[0] != '1') return;
+    HMODULE upscaler = LoadLibraryA("amd_fidelityfx_upscaler_dx12.dll");
+    if (!upscaler) {
+        printf("no amd_fidelityfx_upscaler_dx12.dll to patch\n");
+        return;
+    }
+    PatchImport(upscaler, "GetProcAddress", (void*)HiddenGetProcAddress);
+    PatchImport(upscaler, "GetModuleHandleA", (void*)HiddenGetModuleHandleA);
+    PatchImport(upscaler, "GetModuleHandleW", (void*)HiddenGetModuleHandleW);
+}
+
 static void Message(uint32_t type, const wchar_t* message) {
     fprintf(stderr, "FFX %s: %ls\n", type == FFX_API_MESSAGE_TYPE_ERROR ? "error" : "warning", message);
 }
@@ -192,6 +250,7 @@ int main(int argc, char** argv) {
              argc > 5 && strcmp(argv[5], "noise") == 0 ? "noise_" : "", rw, rh, ow, oh);
     CaptureInstall(device, list, capture_dir);
 
+    HideAmdExtension();
     HMODULE loader = LoadLibraryA("amd_fidelityfx_loader_dx12.dll");
     if (!loader) {
         fprintf(stderr, "no amd_fidelityfx_loader_dx12.dll\n");
