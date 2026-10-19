@@ -710,6 +710,10 @@ public:
     enum BarrierSite : u32 { SiteRender = 1, SiteCompute = 2, SiteTiling = 4, SiteHle = 8 };
     static bool FullBarriers(u32 site = SiteRender | SiteCompute | SiteTiling | SiteHle);
     static void RecordFullBarrier(vk::CommandBuffer cmdbuf);
+    /// iss: attachment writes of a render pass before later attachment accesses (on unless
+    /// TLG_PASS_BARRIERS=0); see vk_scheduler.cpp.
+    static bool PassBarriers();
+    static void RecordPassBarrier(vk::CommandBuffer cmdbuf);
 
     /// Sets a function to be called on every scheduler submission.
     void SetSubmitCallback(SubmitFunc&& on_submit) {
