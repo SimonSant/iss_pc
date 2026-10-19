@@ -58,6 +58,26 @@ def expected_groups(name, rw, rh, ow, oh):
         return (ceil_div(lw, 64), lh, 1)
     return None  # _post passes: bounds-checked in the shader, dispatched with a margin
 
+def pass_extent(name, rw, rh, ow, oh):
+    aw, ah = (ow + 7) & ~7, (oh + 7) & ~7
+    if name == 'spd':
+        return rw, rh
+    m = re.fullmatch(r'pass(\d+)', name)
+    if m:
+        return aw >> LEVEL[int(m[1])], ah >> LEVEL[int(m[1])]
+    return aw, ah
+
+def fit_tiles(key, name, seen):
+    """None when the built-in rule holds, else the one (x, y) tile every capture agrees on."""
+    if all(groups == want for _, groups, want in seen):
+        return None
+    for tx in (1, 2, 4, 8, 16, 32, 64, 128):
+        for ty in (1, 2, 4, 8, 16, 32, 64, 128):
+            if all(groups == (ceil_div(w, tx), ceil_div(h, ty), 1) for (w, h), groups, _ in seen):
+                return tx, ty
+    fail(f'{key} {name}: no tile fits the groups {[g for _, g, _ in seen]}')
+    return None
+
 sets = {}
 for cap in sorted(glob.glob(os.path.join(root, 'capture_*'))):
     m = re.search(r'capture_(\d+)x(\d+)_(\d+)x(\d+)$', cap)
@@ -79,8 +99,10 @@ for cap in sorted(glob.glob(os.path.join(root, 'capture_*'))):
     for (h, gx, gy, gz, body), name in zip(disp, names):
         groups = (int(gx), int(gy), int(gz))
         want = expected_groups(name, rw, rh, ow, oh)
-        if want and want != groups:
-            fail(f'{cap} {name}: groups {groups}, rule {want}')
+        if want:
+            # Other drivers (Windows, AMD) get shader variants with other tiles: groups.txt.
+            entry.setdefault('groups', {}).setdefault(name, []).append(
+                (pass_extent(name, rw, rh, ow, oh), groups, want))
         prev = entry['shaders'].get(name)
         if prev and prev != h:
             fail(f'{cap} {name}: shader {h} differs from {prev} in the same set')
@@ -124,7 +146,16 @@ for key, entry in sorted(sets.items()):
             subprocess.run(['spirv-as', '--target-env', 'spv1.3', '-', '-o', spv], input=lds, check=True,
                            text=True)
     open(os.path.join(d, 'initializer.bin'), 'wb').write(entry['init'])
-    print(f'{key}: {len(entry["dxil"])} shaders, initializer {hashlib.sha256(entry["init"]).hexdigest()[:12]}, '
+    tiles = {name: fit_tiles(key, name, seen) for name, seen in entry.get('groups', {}).items()}
+    tiles = {name: tile for name, tile in tiles.items() if tile}
+    groups_txt = os.path.join(d, 'groups.txt')
+    if tiles:
+        with open(groups_txt, 'w') as f:
+            for name, (tx, ty) in sorted(tiles.items()):
+                f.write(f'{name} {tx} {ty}\n')
+    elif os.path.exists(groups_txt):
+        os.remove(groups_txt)
+    print(f'{key}: {len(entry["dxil"])} shaders, {len(tiles)} tiled passes, initializer {hashlib.sha256(entry["init"]).hexdigest()[:12]}, '
           f'from {len(entry["caps"])} captures')
 if errors:
     print(f'{errors} mismatches')

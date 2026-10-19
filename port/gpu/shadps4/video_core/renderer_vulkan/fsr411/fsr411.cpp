@@ -220,6 +220,10 @@ struct Upscaler::Impl {
         VkPipeline pipeline = VK_NULL_HANDLE;
     };
     std::array<Pass, kPassCount> passes{};
+    /// iss: work-group tiles (pixels per group in x, y) of the set's passes, from its
+    /// groups.txt: the DLL picks other shader variants on some drivers (Windows, AMD), with other
+    /// tiles. Passes not listed keep the built-in rules.
+    std::map<std::string, std::pair<uint32_t, uint32_t>> tiles;
     VkSampler linear_clamp = VK_NULL_HANDLE;
 
     struct Img {
@@ -498,6 +502,14 @@ struct Upscaler::Impl {
                 return false;
             }
         }
+        tiles.clear();
+        if (std::ifstream groups{dir + "/" + set + "/groups.txt"}) {
+            std::string pass;
+            uint32_t tx = 0, ty = 0;
+            while (groups >> pass >> tx >> ty) {
+                if (tx && ty) tiles[pass] = {tx, ty};
+            }
+        }
         if (!ReadFile(dir + "/" + set + "/initializer.bin", initializer_data) ||
             initializer_data.size() != 131072) {
             error = "missing or wrong " + dir + "/" + set + "/initializer.bin";
@@ -724,7 +736,20 @@ struct Upscaler::Impl {
             push_descriptors(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, p.layout, 0, uint32_t(writes.size()),
                              writes.data());
             uint32_t gx = 1, gy = 1;
-            if (name == "spd") {
+            const auto tile = tiles.find(name);
+            if (tile != tiles.end() && !name.ends_with("_post")) {
+                uint32_t lw = aw, lh = ah; // prepass, postpass, rcas: the aligned output
+                if (name == "spd") {
+                    lw = rw;
+                    lh = rh;
+                } else if (name.starts_with("pass")) {
+                    const uint32_t level = kRunLevel[uint32_t(std::stoi(name.substr(4)))];
+                    lw = aw >> level;
+                    lh = ah >> level;
+                }
+                gx = CeilDiv(lw, tile->second.first);
+                gy = CeilDiv(lh, tile->second.second);
+            } else if (name == "spd") {
                 gx = CeilDiv(rw, 64);
                 gy = CeilDiv(rh, 64);
             } else if (name == "prepass" || name == "rcas") {
